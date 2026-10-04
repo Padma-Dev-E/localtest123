@@ -1,0 +1,14 @@
+import { ArrowUpRight, CheckCircle2, Layers3, Server, XCircle } from "lucide-react";
+
+import { ActivityFeed } from "@/components/dashboard/activity-feed";
+import { PipelineTable } from "@/components/dashboard/pipeline-table";
+import { formatPercent, MetricCard } from "@/components/dashboard/shared";
+import { DurationBar } from "@/components/charts/duration-bar";
+import { PipelineTrend } from "@/components/charts/pipeline-trend";
+import { StatusDonut } from "@/components/charts/status-donut";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import type { DashboardData, PipelineSummary } from "@/lib/dashboard";
+
+export function OverviewView({ data, onViewPipelines, onSelectPipeline }: { data: DashboardData; onViewPipelines: () => void; onSelectPipeline: (pipeline: PipelineSummary) => void }) {
+  return <><div className="metric-grid"><MetricCard label="Visible projects" value={data.projects.length} detail="Reporter-readable projects" icon={Layers3} tone="blue" /><MetricCard label="Pipeline success" value={formatPercent(data.metrics.successRate)} detail={`${data.metrics.successfulPipelines} successful of ${data.metrics.totalPipelines} runs`} icon={CheckCircle2} tone="teal" /><MetricCard label="Failed pipelines" value={data.metrics.failedPipelines} detail="In the selected time window" icon={XCircle} tone="rose" /><MetricCard label="Active environments" value={data.metrics.activeEnvironments} detail="Currently available targets" icon={Server} tone="amber" /></div><div className="chart-grid"><Card><CardHeader><CardTitle>Pipeline throughput</CardTitle><CardDescription>Run volume and outcomes by day</CardDescription></CardHeader><CardContent><PipelineTrend pipelines={data.pipelines} /></CardContent></Card><Card><CardHeader><CardTitle>Outcome mix</CardTitle><CardDescription>All pipeline states in the window</CardDescription></CardHeader><CardContent><StatusDonut pipelines={data.pipelines} /></CardContent></Card></div><div className="lower-grid"><Card><CardHeader><CardTitle>Average duration by project</CardTitle><CardDescription>Where delivery time is being spent</CardDescription></CardHeader><CardContent><DurationBar pipelines={data.pipelines} /></CardContent></Card><Card><CardHeader><CardTitle>Recent engineering activity</CardTitle><CardDescription>Open work and latest commits visible to this token</CardDescription></CardHeader><CardContent><ActivityFeed activity={data.activity} /></CardContent></Card></div><Card><CardHeader className="table-card-header"><div><CardTitle>Latest pipelines</CardTitle><CardDescription>The most recent delivery signals across visible projects</CardDescription></div><button className="text-link text-link-button" type="button" onClick={onViewPipelines}>View all <ArrowUpRight size={15} /></button></CardHeader><CardContent className="flush-content"><PipelineTable pipelines={data.pipelines} onSelect={onSelectPipeline} /></CardContent></Card></>;
+}

@@ -29,3 +29,14 @@ The included `Dockerfile` builds a standalone Next.js image. `docker-compose.yml
 ## Security notes
 
 The dashboard does not proxy job traces or pipeline variables because they can contain secrets. Use the direct GitLab links from the diagnostics view for trace inspection.
+
+## Source layout
+
+- `app/page.tsx`: route entry only
+- `components/dashboard/dashboard-shell.tsx`: page composition and view state
+- `components/dashboard/*-view.tsx`: overview, pipeline, project, and runner views
+- `components/dashboard/*-table.tsx`: focused table components and their data props
+- `components/dashboard/pipeline-drawer.tsx`: pipeline diagnostics presentation
+- `components/dashboard/shared.tsx`: shared formatters, badges, metric cards, and empty states
+- `hooks/`: client-side dashboard and pipeline-detail data fetching
+- `lib/`: GitLab API integration, domain types, aggregation, and tests
