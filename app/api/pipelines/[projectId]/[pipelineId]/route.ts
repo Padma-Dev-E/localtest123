@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 import { getPipelineDetails } from "@/lib/pipeline-detail";
 import { GitLabApiError } from "@/lib/gitlab";
@@ -12,7 +12,7 @@ function parseId(value: string): number | null {
 }
 
 export async function GET(
-  _request: Request,
+  _request: NextRequest,
   { params }: { params: Promise<{ projectId: string; pipelineId: string }> },
 ) {
   const { projectId: projectIdValue, pipelineId: pipelineIdValue } = await params;

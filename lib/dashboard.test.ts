@@ -7,6 +7,7 @@ import {
   type PipelineSummary,
 } from "./dashboard";
 import { explainFailureReason, summarizePipelineStats, summarizeJobAttempts } from "./pipeline-detail";
+import { paginationFromHeaders } from "./api-pagination";
 
 const pipelines: PipelineSummary[] = [
   {
@@ -79,6 +80,30 @@ describe("mergeWarnings", () => {
     expect(mergeWarnings(["Runner access unavailable", "", "Runner access unavailable"])).toEqual([
       "Runner access unavailable",
     ]);
+  });
+});
+
+describe("API pagination", () => {
+  it("preserves GitLab totals, including an empty result", () => {
+    const headers = new Headers({ "x-total": "0", "x-total-pages": "0" });
+    expect(paginationFromHeaders(headers, 1, 20, 0)).toMatchObject({
+      total: 0,
+      totalPages: 0,
+      hasNext: false,
+      hasPrevious: false,
+    });
+  });
+
+  it("uses GitLab next and previous page headers", () => {
+    const headers = new Headers({ "x-total": "41", "x-total-pages": "3", "x-next-page": "3", "x-prev-page": "1" });
+    expect(paginationFromHeaders(headers, 2, 20, 20)).toMatchObject({
+      total: 41,
+      totalPages: 3,
+      nextPage: 3,
+      previousPage: 1,
+      hasNext: true,
+      hasPrevious: true,
+    });
   });
 });
 

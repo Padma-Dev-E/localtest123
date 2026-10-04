@@ -9,6 +9,21 @@ Read-only GitLab delivery dashboard built with Next.js, ECharts, and GitLab's RE
 - Runner names, status, version, and total count from the GitLab runner inventory
 - Server-side GitLab token handling; credentials are never sent to the browser
 
+## Backend API
+
+All list endpoints use GitLab pagination metadata and return an `items` array plus a `pagination` object with `page`, `perPage`, `total`, `totalPages`, `hasNext`, `hasPrevious`, `nextPage`, and `previousPage`.
+
+```text
+GET /api/projects?page=1&per_page=20&search=platform
+GET /api/pipelines?project=all&page=1&per_page=20&hours=24
+GET /api/pipelines?project=123&page=1&per_page=20&hours=24&status=failed&ref=main
+GET /api/runners?project=all&page=1&per_page=20
+GET /api/runners?project=123&page=1&per_page=20
+GET /api/pipelines/123/456
+```
+
+`project=all` pipeline requests paginate recently active projects, then read the recent pipelines for only that project page with a bounded concurrency of four. This keeps a large GitLab instance from receiving one request per project. For exact pipeline totals and native pipeline pagination, pass a project id. The detail endpoint is for a selected pipeline and loads its complete job and diagnostic data.
+
 ## Local setup
 
 1. Copy `.env.example` to `.env`.
@@ -41,6 +56,8 @@ The dashboard does not proxy job traces or pipeline variables because they can c
 - `hooks/`: client-side dashboard and pipeline-detail data fetching
 - `lib/dashboard.ts`: concise 24-hour summary API, pagination, counts, and runner inventory
 - `lib/pipeline-detail.ts`: optional click-through diagnostics for one pipeline
+- `lib/gitlab-resources.ts`: paginated project, pipeline, and runner resources
+- `lib/api-pagination.ts`: shared pagination parsing and request bounds
 - `lib/`: GitLab API integration and tests
 
 The initial dashboard request is intentionally light: it reads one project page for the total project count, scans only recently active projects for pipeline summaries, and reads one runner inventory page for names and status. Jobs, artifacts, retries, test reports, and failure reasons are loaded only by the pipeline detail endpoint.

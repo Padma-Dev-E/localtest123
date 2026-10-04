@@ -85,18 +85,24 @@ export async function gitlabFetchAll<T>(path: string): Promise<T[]> {
   const items: T[] = [];
   let nextPath = path;
   for (let page = 1; page <= MAX_PAGES && nextPath; page += 1) {
-    const separator = nextPath.includes("?") ? "&" : "?";
-    const response = await gitlabFetchPage<T[]>(`${nextPath}${separator}per_page=${PAGE_SIZE}&page=1`);
+    const response = await gitlabFetchPage<T[]>(withPageSize(nextPath));
     items.push(...response.data);
     nextPath = nextPagePath(response.headers, nextPath);
   }
   return items;
 }
 
+function withPageSize(path: string): string {
+  const url = new URL(path, "https://pagination.invalid");
+  if (!url.searchParams.has("page")) url.searchParams.set("page", "1");
+  url.searchParams.set("per_page", String(PAGE_SIZE));
+  return `${url.pathname}${url.search}`;
+}
+
 function nextPagePath(headers: Headers, currentPath: string): string {
-  const link = headers.get("link")?.match(/<([^>]+)>;\s*rel="next"/i)?.[1];
+  const link = headers.get("link")?.match(/<([^>]+)>;\s*rel=["']next["']/i)?.[1];
   if (link) {
-    const url = new URL(link);
+    const url = new URL(link, "https://pagination.invalid");
     return `${url.pathname.replace(/^\/api\/v4/, "")}${url.search}`;
   }
   const nextPage = headers.get("x-next-page");
