@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getPipelineDetails } from "@/lib/dashboard";
+import { getPipelineDetails } from "@/lib/pipeline-detail";
 import { GitLabApiError } from "@/lib/gitlab";
 
 export const dynamic = "force-dynamic";

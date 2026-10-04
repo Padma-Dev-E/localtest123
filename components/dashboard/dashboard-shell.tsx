@@ -17,9 +17,8 @@ import { usePipelineDetail } from "@/hooks/use-pipeline-detail";
 
 export function DashboardShell() {
   const [view, setView] = useState<View>("overview");
-  const [days, setDays] = useState("30");
   const [project, setProject] = useState("all");
-  const { data, loading, error, lastRefresh, loadData } = useDashboardData(days, project);
+  const { data, loading, error, lastRefresh, loadData } = useDashboardData(project);
   const pipeline = usePipelineDetail();
 
   const selectedProjectName = useMemo(() => data?.projects.find((item) => String(item.id) === project)?.name, [data, project]);
@@ -28,7 +27,7 @@ export function DashboardShell() {
   return <main className="ops-shell">
     <DashboardHeader loading={loading} onRefresh={() => void loadData()} />
     <DashboardIntro title={title} projectName={selectedProjectName || "All visible projects"} lastRefresh={lastRefresh} />
-    <DashboardFilters view={view} days={days} project={project} projects={data?.projects || []} onViewChange={setView} onDaysChange={setDays} onProjectChange={setProject} />
+    <DashboardFilters view={view} project={project} projects={data?.projects || []} onViewChange={setView} onProjectChange={setProject} />
     <section className="page-width dashboard-content">
       {error ? <Alert tone="danger"><XCircle size={17} /><div><strong>Unable to refresh dashboard</strong><span>{error}</span></div></Alert> : null}
       {data?.warnings.map((warning) => <Alert key={warning} tone={warning.toLowerCase().includes("unavailable") ? "warning" : "info"}><AlertTriangle size={17} /><span>{warning}</span></Alert>)}

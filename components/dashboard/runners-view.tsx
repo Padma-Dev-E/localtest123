@@ -5,5 +5,5 @@ import type { DashboardData } from "@/lib/dashboard";
 
 export function RunnersView({ data }: { data: DashboardData }) {
   const observed = data.runnerSource === "job_observed";
-  return <Card><CardHeader><div><CardTitle>Runner fleet</CardTitle><CardDescription>{observed ? "Observed from Reporter-readable job executions; full runner inventory requires elevated GitLab permission." : "Runner visibility depends on the permissions granted by the upstream GitLab instance."}</CardDescription></div><Badge tone={observed ? "warning" : "success"}>{observed ? "Observed via jobs" : "Full inventory"}</Badge></CardHeader><CardContent className="flush-content"><RunnerTable data={data} /></CardContent></Card>;
+  return <Card><CardHeader><div><CardTitle>Runner fleet</CardTitle><CardDescription>{observed ? "Observed from readable job executions; full runner inventory requires the appropriate GitLab role." : "Runner visibility comes from the permissions granted by the GitLab instance."}</CardDescription></div><Badge tone={observed ? "warning" : "success"}>{observed ? "Observed via jobs" : "Full inventory"}</Badge></CardHeader><CardContent className="flush-content"><RunnerTable data={data} /></CardContent></Card>;
 }

@@ -2,7 +2,8 @@
 
 import { useCallback, useState } from "react";
 
-import type { PipelineDetail, PipelineSummary } from "@/lib/dashboard";
+import type { PipelineDetail } from "@/lib/pipeline-detail";
+import type { PipelineSummary } from "@/lib/dashboard";
 
 export function usePipelineDetail() {
   const [selectedPipeline, setSelectedPipeline] = useState<PipelineSummary | null>(null);

@@ -1,7 +1,8 @@
 import { AlertTriangle, Clock3, ExternalLink, FileArchive, GitBranch, GitPullRequest, RefreshCw, ShieldAlert, TestTube2, Workflow, X, XCircle } from "lucide-react";
 
-import { explainFailureReason } from "@/lib/dashboard";
-import type { PipelineDetail, PipelineJobDetail, PipelineStats, PipelineSummary } from "@/lib/dashboard";
+import { explainFailureReason } from "@/lib/pipeline-detail";
+import type { PipelineDetail, PipelineJobDetail, PipelineStats } from "@/lib/pipeline-detail";
+import type { PipelineSummary } from "@/lib/dashboard";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge, formatBytes, formatDate, formatDuration } from "@/components/dashboard/shared";

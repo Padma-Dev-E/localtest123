@@ -6,10 +6,9 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const days = Number(url.searchParams.get("days") || "30");
   const projectIdValue = url.searchParams.get("project");
   const projectId = projectIdValue && projectIdValue !== "all" ? Number(projectIdValue) : undefined;
-  const data = await getDashboardData({ days, projectId: Number.isFinite(projectId) ? projectId : undefined });
+  const data = await getDashboardData({ projectId: Number.isFinite(projectId) ? projectId : undefined });
 
   return NextResponse.json(data, {
     headers: {

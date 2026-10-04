@@ -1,4 +1,6 @@
 const DEFAULT_TIMEOUT_MS = 12_000;
+const PAGE_SIZE = 100;
+const MAX_PAGES = 50;
 
 export class GitLabApiError extends Error {
   readonly status: number;
@@ -14,7 +16,7 @@ export class GitLabApiError extends Error {
 
 function getGitLabConfig() {
   const baseUrl = process.env.GITLAB_URL?.replace(/\/$/, "");
-  const token = process.env.GITLAB_REPORTER_TOKEN;
+  const token = process.env.GITLAB_API_TOKEN || process.env.GITLAB_REPORTER_TOKEN;
 
   if (!baseUrl || !token) {
     throw new GitLabApiError("GitLab dashboard is not configured", 503, "configuration");
@@ -54,6 +56,17 @@ export async function gitlabFetch<T>(path: string, init?: RequestInit): Promise<
   } finally {
     clearTimeout(timeout);
   }
+}
+
+export async function gitlabFetchAll<T>(path: string): Promise<T[]> {
+  const items: T[] = [];
+  for (let page = 1; page <= MAX_PAGES; page += 1) {
+    const separator = path.includes("?") ? "&" : "?";
+    const batch = await gitlabFetch<T[]>(`${path}${separator}per_page=${PAGE_SIZE}&page=${page}`);
+    items.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+  }
+  return items;
 }
 
 export function projectPath(id: number, suffix: string): string {

@@ -3,13 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   buildPipelineMetrics,
   calculateDurationSeconds,
-  explainFailureReason,
-  summarizePipelineStats,
-  summarizeJobAttempts,
   deriveObservedRunners,
   mergeWarnings,
   type PipelineSummary,
 } from "./dashboard";
+import { explainFailureReason, summarizePipelineStats, summarizeJobAttempts } from "./pipeline-detail";
 
 const pipelines: PipelineSummary[] = [
   {
@@ -65,6 +63,16 @@ describe("buildPipelineMetrics", () => {
       averageDurationSeconds: 105,
     });
   });
+
+  it("counts failed job reasons and stages", () => {
+    expect(buildPipelineMetrics(pipelines, [
+      { id: 10, name: "unit_tests", stage: "test", status: "failed", failure_reason: "script_failure", projectId: 10, projectName: "api" },
+      { id: 11, name: "package", stage: "package", status: "failed", failure_reason: "runner_system_failure", projectId: 10, projectName: "api" },
+    ])).toMatchObject({
+      failureReasons: [{ name: "runner_system_failure", count: 1 }, { name: "script_failure", count: 1 }],
+      failedStages: [{ name: "package", count: 1 }, { name: "test", count: 1 }],
+    });
+  });
 });
 
 describe("mergeWarnings", () => {
@@ -76,7 +84,7 @@ describe("mergeWarnings", () => {
 });
 
 describe("deriveObservedRunners", () => {
-  it("builds runner statistics from Reporter-readable job responses", () => {
+  it("builds runner statistics from readable job responses", () => {
     expect(deriveObservedRunners([
       { status: "success", duration: 10, runner: { id: 7, description: "Kubernetes R&D", status: "online", online: true, paused: false, version: "18.11.4", runner_type: "group_type" } },
       { status: "failed", duration: 20, runner: { id: 7, description: "Kubernetes R&D", status: "online", online: true, paused: false, version: "18.11.4", runner_type: "group_type" } },

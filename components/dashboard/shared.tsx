@@ -3,15 +3,11 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock3,
-  GitCommitHorizontal,
-  GitMerge,
-  TriangleAlert,
   XCircle,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import type { ActivityItem } from "@/lib/dashboard";
 import { cn } from "@/lib/utils";
 
 export function formatDate(value: string | null | undefined) {
@@ -55,12 +51,6 @@ export function StatusBadge({ status }: { status: string }) {
 
 export function MetricCard({ label, value, detail, icon: Icon, tone = "teal" }: { label: string; value: string | number; detail: string; icon: typeof Activity; tone?: "teal" | "rose" | "amber" | "blue" }) {
   return <Card className="metric-card"><CardContent><div className={cn("metric-icon", `metric-icon-${tone}`)}><Icon size={17} aria-hidden="true" /></div><div className="metric-copy"><span className="metric-label">{label}</span><strong className="metric-value">{value}</strong><span className="metric-detail">{detail}</span></div></CardContent></Card>;
-}
-
-export function ActivityIcon({ kind }: { kind: ActivityItem["kind"] }) {
-  if (kind === "merge_request") return <GitMerge size={16} aria-hidden="true" />;
-  if (kind === "issue") return <TriangleAlert size={16} aria-hidden="true" />;
-  return <GitCommitHorizontal size={16} aria-hidden="true" />;
 }
 
 export function EmptyState({ title, detail, icon = <AlertTriangle size={22} /> }: { title: string; detail: string; icon?: React.ReactNode }) {
