@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   buildPipelineMetrics,
   calculateDurationSeconds,
-  deriveObservedRunners,
   mergeWarnings,
   type PipelineSummary,
 } from "./dashboard";
@@ -79,18 +78,6 @@ describe("mergeWarnings", () => {
   it("deduplicates empty and repeated warnings", () => {
     expect(mergeWarnings(["Runner access unavailable", "", "Runner access unavailable"])).toEqual([
       "Runner access unavailable",
-    ]);
-  });
-});
-
-describe("deriveObservedRunners", () => {
-  it("builds runner statistics from readable job responses", () => {
-    expect(deriveObservedRunners([
-      { status: "success", duration: 10, runner: { id: 7, description: "Kubernetes R&D", status: "online", online: true, paused: false, version: "18.11.4", runner_type: "group_type" } },
-      { status: "failed", duration: 20, runner: { id: 7, description: "Kubernetes R&D", status: "online", online: true, paused: false, version: "18.11.4", runner_type: "group_type" } },
-      { status: "skipped", duration: null, runner: null },
-    ])).toMatchObject([
-      { id: 7, description: "Kubernetes R&D", observedJobs: 2, successfulJobs: 1, failedJobs: 1, averageDurationSeconds: 15 },
     ]);
   });
 });

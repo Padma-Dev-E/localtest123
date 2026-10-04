@@ -6,7 +6,7 @@ Read-only GitLab delivery dashboard built with Next.js, ECharts, and GitLab's RE
 
 - Last-24-hour project, pipeline, job, and runner overview
 - Pipeline diagnostics with failed stages, failure reasons, retries, artifacts, test summaries, and downstream triggers
-- Runner statistics from full inventory or readable jobs when inventory is unavailable
+- Runner names, status, version, and total count from the GitLab runner inventory
 - Server-side GitLab token handling; credentials are never sent to the browser
 
 ## Local setup
@@ -39,6 +39,8 @@ The dashboard does not proxy job traces or pipeline variables because they can c
 - `components/dashboard/pipeline-drawer.tsx`: pipeline diagnostics presentation
 - `components/dashboard/shared.tsx`: shared formatters, badges, metric cards, and empty states
 - `hooks/`: client-side dashboard and pipeline-detail data fetching
-- `lib/dashboard.ts`: concise 24-hour summary API, pagination, counts, and runner fallback
+- `lib/dashboard.ts`: concise 24-hour summary API, pagination, counts, and runner inventory
 - `lib/pipeline-detail.ts`: optional click-through diagnostics for one pipeline
 - `lib/`: GitLab API integration and tests
+
+The initial dashboard request is intentionally light: it reads one project page for the total project count, scans only recently active projects for pipeline summaries, and reads one runner inventory page for names and status. Jobs, artifacts, retries, test reports, and failure reasons are loaded only by the pipeline detail endpoint.
