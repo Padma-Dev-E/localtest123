@@ -77,6 +77,20 @@ async function loadDashboard(url: string) {
   }
 }
 
+type PipelinePageResponse = {
+  items: PipelineSummary[];
+  pagination: ApiPagination;
+  warnings?: string[];
+  error?: string;
+};
+
+async function fetchPipelinePage(url: string): Promise<PipelinePageResponse> {
+  const response = await fetch(url, { cache: "no-store" });
+  const payload = await response.json() as PipelinePageResponse;
+  if (!response.ok) throw new Error(payload.error || "Pipeline list could not be loaded");
+  return payload;
+}
+
 export const loadResources = createAsyncThunk("dashboard/loadResources", async (filters: DashboardFilters) => {
   const params = new URLSearchParams({ hours: String(filters.hours) });
   if (filters.projectId) params.set("project", String(filters.projectId));
@@ -86,6 +100,16 @@ export const loadResources = createAsyncThunk("dashboard/loadResources", async (
   }
   const result = await loadDashboard(`/api/dashboard?${params}`);
   return { filters, dashboard: result.dashboard, warnings: result.warnings };
+});
+
+export const loadPipelinePage = createAsyncThunk("dashboard/loadPipelinePage", async (filters: DashboardFilters) => {
+  const params = new URLSearchParams({ project: filters.projectId ? String(filters.projectId) : "all", page: "1", per_page: "20", hours: String(filters.hours) });
+  if (filters.groupId) {
+    params.set("group_id", String(filters.groupId));
+    params.set("include_subgroups", String(filters.includeSubgroups));
+  }
+  const page = await fetchPipelinePage(`/api/pipelines?${params}`);
+  return { page, warnings: page.warnings || [] };
 });
 
 const dashboardSlice = createSlice({
@@ -130,6 +154,19 @@ const dashboardSlice = createSlice({
         state.pipelines.loading = false;
         state.runners.loading = false;
         state.groups.loading = false;
+      })
+      .addCase(loadPipelinePage.pending, (state) => {
+        state.pipelines.loading = true;
+        state.pipelines.error = null;
+      })
+      .addCase(loadPipelinePage.fulfilled, (state, action) => {
+        state.pipelines = { items: action.payload.page.items, pagination: action.payload.page.pagination, loading: false, loaded: true, error: null };
+        state.warnings = mergeWarnings([...state.warnings, ...action.payload.warnings]);
+      })
+      .addCase(loadPipelinePage.rejected, (state, action) => {
+        state.pipelines.loading = false;
+        state.pipelines.error = action.error.message || "Pipeline list could not be loaded";
+        state.warnings = mergeWarnings([...state.warnings, state.pipelines.error]);
       });
   },
 });

@@ -1,12 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { pageNumber, paginateItems, perPageNumber } from "@/lib/api-pagination";
-import { collectPipelinesForProjects, getGroup, getProject, instancePipelineAnalytics, listAllPipelines, listGroupProjects, listGlobalPipelinesPage, listPipelines, pipelineAnalytics, pipelineStatsForItems, pipelineStatsForPage, pipelineStatsForProject } from "@/lib/gitlab-resources";
+import { pageNumber, paginateItems, perPageNumber, type ApiPagination } from "@/lib/api-pagination";
+import { collectPipelinesForProjects, getGroup, getProject, instancePipelineAnalytics, listAllPipelines, listGroupProjects, listGlobalPipelinesPage, listLatestAccessiblePipelines, listPipelines, pipelineAnalytics, pipelineStatsForItems, pipelineStatsForPage, pipelineStatsForProject } from "@/lib/gitlab-resources";
 import { GitLabApiError } from "@/lib/gitlab";
 import { cached } from "@/lib/ttl-cache";
 import { parseHours } from "@/lib/time-window";
 
 export const dynamic = "force-dynamic";
+
+type AccessiblePipelineFallback = Awaited<ReturnType<typeof listLatestAccessiblePipelines>>;
+
+async function loadAccessiblePipelineFallback(hours: number, status?: string, ref?: string): Promise<{ result: AccessiblePipelineFallback | null; warning?: string }> {
+  try {
+    return { result: await cached(`accessible-pipelines:${hours}:${status || "all"}:${ref || "all"}`, () => listLatestAccessiblePipelines({ hours, status, ref })) };
+  } catch (error) {
+    return { result: null, warning: error instanceof GitLabApiError && error.status === 403 ? "Accessible project pipeline fallback is not available to this GitLab token." : "Accessible project pipeline fallback could not be loaded." };
+  }
+}
 
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
@@ -31,12 +41,24 @@ export async function GET(request: NextRequest) {
       const warnings: string[] = [];
       if (status || ref) warnings.push("GitLab's direct global pipeline listing does not support status/ref filters; aggregate metrics apply the filters, but visible rows remain the latest direct rows.");
       let result: Awaited<ReturnType<typeof listGlobalPipelinesPage>>;
+      let projectPagination: ApiPagination | undefined;
       try {
         result = await cached(directCacheKey, () => listGlobalPipelinesPage(page, perPage, { hours, projectId }));
+        if (!result.items.length) {
+          const fallback = await loadAccessiblePipelineFallback(hours, status, ref);
+          if (fallback.result?.items.length) {
+            result = paginateItems(fallback.result.items, page, perPage);
+            projectPagination = fallback.result.projectPagination;
+            warnings.push("GitLab returned no global pipeline rows; showing the latest pipeline from each accessible project.", ...fallback.result.warnings);
+          } else if (fallback.warning) warnings.push(fallback.warning);
+        }
       } catch (error) {
         if (!(error instanceof GitLabApiError) || ![403, 404, 405].includes(error.status)) throw error;
-        result = paginateItems([], page, perPage);
-        warnings.push("GitLab global pipeline listing is unavailable for this instance; use a project or group pipeline list for detailed rows.");
+        const fallback = await loadAccessiblePipelineFallback(hours, status, ref);
+        result = paginateItems(fallback.result?.items || [], page, perPage);
+        projectPagination = fallback.result?.projectPagination;
+        warnings.push("GitLab global pipeline listing is unavailable; showing the latest pipeline from each accessible project.", ...(fallback.result?.warnings || []));
+        if (fallback.warning) warnings.push(fallback.warning);
       }
       let stats = pipelineStatsForPage(result, "authenticated-user");
       let analyticsAvailable = false;
@@ -52,7 +74,7 @@ export async function GET(request: NextRequest) {
       const pagination = analyticsAvailable
         ? { ...result.pagination, total: stats.totalPipelines, totalPages: Math.ceil(stats.totalPipelines / perPage), hasNext: page < Math.ceil(stats.totalPipelines / perPage), nextPage: page < Math.ceil(stats.totalPipelines / perPage) ? page + 1 : null }
         : result.pagination;
-      return NextResponse.json({ ...result, pagination, stats, filters: { project: project === "all" ? "all" : projectId, groupId: null, includeSubgroups, hours, status: status || null, ref: ref || null, all: false, summary }, warnings, paginationNote: analyticsAvailable ? "Rows use GitLab's direct /pipelines endpoint; aggregate counts and trends use Enterprise pipeline analytics." : "Rows use GitLab's direct /pipelines endpoint. Its documented scope is pipelines triggered by the authenticated user." });
+      return NextResponse.json({ ...result, pagination, projectPagination, stats, filters: { project: project === "all" ? "all" : projectId, groupId: null, includeSubgroups, hours, status: status || null, ref: ref || null, all: false, summary }, warnings: [...new Set(warnings)], paginationNote: analyticsAvailable ? "Rows use GitLab's direct /pipelines endpoint when available; aggregate counts and trends use Enterprise pipeline analytics." : "Rows use the direct endpoint when available, otherwise the latest accessible pipeline per project. Aggregate counts use the best available source." });
     }
 
     if (project !== "all") {

@@ -4,6 +4,7 @@ import { useCallback, useEffect } from "react";
 
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
+  loadPipelinePage,
   loadResources,
   selectDashboardData,
   selectDashboardError,
@@ -27,10 +28,14 @@ export function useDashboardData(filters: DashboardFilters) {
     void dispatch(loadResources(filters));
   }, [dispatch, filters]);
 
+  const loadPipelines = useCallback(() => {
+    void dispatch(loadPipelinePage(filters));
+  }, [dispatch, filters]);
+
   useEffect(() => {
     void dispatch(loadResources(filters));
   }, [dispatch, filters]);
 
   const hasData = dataState.projects.loaded || dataState.pipelines.loaded || dataState.runners.loaded;
-  return { data: hasData ? data : null, groups, loading, error, lastRefresh, loadData, filters: stateFilters };
+  return { data: hasData ? data : null, groups, loading, error, lastRefresh, loadData, loadPipelines, filters: stateFilters };
 }

@@ -104,15 +104,27 @@ async function loadRunners(): Promise<{ items: RunnerSummary[]; page: ApiPaginat
 
 async function loadPipelines(options: DashboardOptions, projects: GitLabProject[]): Promise<{ page: PageResult<PipelineSummary>; warnings: string[] }> {
   try {
+    if (options.projectId) {
+      const project = await getProject(options.projectId);
+      return { page: await listPipelines(project, 1, PIPELINE_PAGE_SIZE, { hours: options.hours }), warnings: [] };
+    }
     if (options.groupId && !options.projectId) {
       const collected = await collectPipelinesForProjects(projects, (project) => listPipelines(project, 1, 1, { hours: options.hours }));
       const sorted = collected.items.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
       const page = paginateItems(sorted, 1, PIPELINE_PAGE_SIZE);
       return { page, warnings: collected.warnings };
     }
-    const page = await listGlobalPipelinesPage(1, PIPELINE_PAGE_SIZE, { hours: options.hours, projectId: options.projectId });
-    return { page, warnings: [] };
+    const page = await listGlobalPipelinesPage(1, PIPELINE_PAGE_SIZE, { hours: options.hours });
+    if (page.items.length) return { page, warnings: [] };
+    const fallback = await collectPipelinesForProjects(projects, (project) => listPipelines(project, 1, 1, { hours: options.hours }));
+    return { page: paginateItems(fallback.items.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)), 1, PIPELINE_PAGE_SIZE), warnings: ["GitLab global pipeline listing returned no rows; showing latest rows from accessible projects.", ...fallback.warnings] };
   } catch (error) {
+    try {
+      const fallback = await collectPipelinesForProjects(projects, (project) => listPipelines(project, 1, 1, { hours: options.hours }));
+      return { page: paginateItems(fallback.items.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)), 1, PIPELINE_PAGE_SIZE), warnings: ["GitLab global pipeline listing is unavailable; showing latest rows from accessible projects.", ...fallback.warnings] };
+    } catch {
+      // Keep the dashboard usable when both the global and project row APIs are unavailable.
+    }
     const warning = error instanceof GitLabApiError && [403, 404, 405].includes(error.status)
       ? "GitLab global pipeline listing is unavailable; dashboard metrics can still use Enterprise pipeline analytics."
       : "Latest pipeline rows could not be loaded";

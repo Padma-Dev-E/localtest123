@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertTriangle, RefreshCw, XCircle } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { DashboardFilters } from "@/components/dashboard/dashboard-filters";
 import { DashboardHeader, DashboardIntro } from "@/components/dashboard/dashboard-header";
@@ -29,8 +29,12 @@ function DashboardShellContent() {
   const [hours, setHours] = useState(24);
   const [includeSubgroups, setIncludeSubgroups] = useState(true);
   const filters = useMemo(() => ({ groupId: group === "all" ? null : Number(group), projectId: project === "all" ? null : Number(project), includeSubgroups, hours }), [group, project, includeSubgroups, hours]);
-  const { data, groups, loading, error, lastRefresh, loadData } = useDashboardData(filters);
+  const { data, groups, loading, error, lastRefresh, loadData, loadPipelines } = useDashboardData(filters);
   const pipeline = usePipelineDetail();
+
+  useEffect(() => {
+    if (view === "pipelines") void loadPipelines();
+  }, [view, loadPipelines]);
 
   const selectedProjectName = useMemo(() => data?.projects.find((item) => String(item.id) === project)?.name, [data, project]);
   const selectedGroupName = useMemo(() => groups.items.find((item) => String(item.id) === group)?.full_path, [groups.items, group]);
