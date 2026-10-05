@@ -8,6 +8,7 @@ import {
   type GroupSummary,
   type PipelineAggregateStats,
   type PipelineSummary,
+  type RunnerAggregateStats,
   type RunnerSummary,
 } from "@/lib/dashboard";
 import type { ApiPagination } from "@/lib/api-pagination";
@@ -31,6 +32,7 @@ type ApiPage<T> = {
   items: T[];
   pagination: ApiPagination;
   stats?: PipelineAggregateStats;
+  runnerStats?: RunnerAggregateStats;
   warnings?: string[];
   error?: string;
 };
@@ -41,6 +43,7 @@ export type DashboardState = {
   projects: ResourcePage<GitLabProject>;
   pipelines: ResourcePage<PipelineSummary>;
   pipelineStats: PipelineAggregateStats | null;
+  runnerStats: RunnerAggregateStats | null;
   runners: ResourcePage<RunnerSummary>;
   runnerSource: "inventory" | "unavailable";
   warnings: string[];
@@ -57,6 +60,7 @@ const initialState: DashboardState = {
   projects: emptyPage<GitLabProject>(),
   pipelines: emptyPage<PipelineSummary>(),
   pipelineStats: null,
+  runnerStats: null,
   runners: emptyPage<RunnerSummary>(),
   runnerSource: "unavailable",
   warnings: [],
@@ -84,17 +88,17 @@ async function loadResource<T>(url: string, label: string) {
 export const loadGroups = createAsyncThunk("dashboard/loadGroups", async () => loadResource<GroupSummary>("/api/groups?page=1&per_page=100", "Groups"));
 
 export const loadResources = createAsyncThunk("dashboard/loadResources", async (filters: DashboardFilters) => {
-  const projectParams = new URLSearchParams({ page: "1", per_page: "20" });
+  const projectParams = new URLSearchParams({ page: "1", per_page: "100", all: "true" });
   if (filters.groupId) {
     projectParams.set("group_id", String(filters.groupId));
     projectParams.set("include_subgroups", String(filters.includeSubgroups));
   }
-  const pipelineParams = new URLSearchParams({ project: filters.projectId ? String(filters.projectId) : "all", page: "1", per_page: "20", hours: String(filters.hours) });
+  const pipelineParams = new URLSearchParams({ project: filters.projectId ? String(filters.projectId) : "all", page: "1", per_page: "100", all: "true", hours: String(filters.hours) });
   if (filters.groupId) {
     pipelineParams.set("group_id", String(filters.groupId));
     pipelineParams.set("include_subgroups", String(filters.includeSubgroups));
   }
-  const runnerParams = new URLSearchParams({ project: filters.projectId ? String(filters.projectId) : "all", page: "1", per_page: "100" });
+  const runnerParams = new URLSearchParams({ project: filters.projectId ? String(filters.projectId) : "all", page: "1", per_page: "100", all: "true" });
   const [projects, pipelines, runners] = await Promise.all([
     loadResource<GitLabProject>(`/api/projects?${projectParams}`, "Projects"),
     loadResource<PipelineSummary>(`/api/pipelines?${pipelineParams}`, "Pipelines"),
@@ -145,6 +149,7 @@ const dashboardSlice = createSlice({
         state.projects = { items: projects.page?.items || [], pagination: projects.page?.pagination || null, loading: false, loaded: true, error: projects.page ? null : projects.warnings[0] || null };
         state.pipelines = { items: pipelines.page?.items || [], pagination: pipelines.page?.pagination || null, loading: false, loaded: true, error: pipelines.page ? null : pipelines.warnings[0] || null };
         state.pipelineStats = pipelines.page?.stats || null;
+        state.runnerStats = runners.page?.runnerStats || null;
         state.runners = { items: runners.page?.items || [], pagination: runners.page?.pagination || null, loading: false, loaded: true, error: runners.page ? null : runners.warnings[0] || null };
         state.runnerSource = runners.page ? "inventory" : "unavailable";
       })
@@ -180,6 +185,7 @@ export const selectDashboardData = createSelector(selectDashboardState, (state):
     metrics.successRate = state.pipelineStats.successRate;
   }
   metrics.visibleRunners = state.runners.items.filter((runner) => runner.online && !runner.paused).length;
+  if (state.runnerStats) metrics.visibleRunners = state.runnerStats.onlineRunners;
   return {
     generatedAt: state.lastRefresh || new Date(0).toISOString(),
     windowHours: state.filters.hours,
@@ -188,6 +194,7 @@ export const selectDashboardData = createSelector(selectDashboardState, (state):
     projects,
     pipelines: state.pipelines.items,
     pipelineStats: state.pipelineStats || undefined,
+    runnerStats: state.runnerStats || undefined,
     jobs: [],
     runners: state.runners.items,
     runnerSource: state.runnerSource,

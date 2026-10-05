@@ -7,7 +7,7 @@ import {
   type PipelineSummary,
 } from "./dashboard";
 import { explainFailureReason, summarizePipelineStats, summarizeJobAttempts } from "./pipeline-detail";
-import { paginationFromHeaders } from "./api-pagination";
+import { paginateItems, paginationFromHeaders } from "./api-pagination";
 
 const pipelines: PipelineSummary[] = [
   {
@@ -104,6 +104,13 @@ describe("API pagination", () => {
       hasNext: true,
       hasPrevious: true,
     });
+  });
+
+  it("paginates an aggregated resource without confusing it with its source project pages", () => {
+    const result = paginateItems(Array.from({ length: 217 }, (_, index) => index + 1), 2, 100);
+    expect(result.items).toHaveLength(100);
+    expect(result.items[0]).toBe(101);
+    expect(result.pagination).toMatchObject({ total: 217, totalPages: 3, nextPage: 3, previousPage: 1 });
   });
 });
 

@@ -31,6 +31,25 @@ export function paginationFromHeaders(headers: Headers, page: number, perPage: n
   };
 }
 
+export function paginateItems<T>(items: T[], page: number, perPage: number): { items: T[]; pagination: ApiPagination } {
+  const total = items.length;
+  const totalPages = total ? Math.ceil(total / perPage) : 0;
+  const start = (page - 1) * perPage;
+  return {
+    items: items.slice(start, start + perPage),
+    pagination: {
+      page,
+      perPage,
+      total,
+      totalPages,
+      hasNext: page < totalPages,
+      hasPrevious: page > 1 && page <= totalPages + 1,
+      nextPage: page < totalPages ? page + 1 : null,
+      previousPage: page > 1 ? page - 1 : null,
+    },
+  };
+}
+
 export function pageNumber(value: string | null, fallback = 1): number {
   const page = Number(value);
   return Number.isSafeInteger(page) && page > 0 ? page : fallback;

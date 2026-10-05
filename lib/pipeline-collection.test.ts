@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { GitLabApiError } from "./gitlab";
-import { collectPipelinesForProjects } from "./gitlab-resources";
+import { collectAllPipelinesForProjects, collectPipelinesForProjects } from "./gitlab-resources";
 import type { GitLabProject, PipelineSummary } from "./dashboard";
 
 const project = (id: number, path: string) => ({
@@ -40,6 +40,21 @@ describe("collectPipelinesForProjects", () => {
       runningPipelines: 0,
       complete: true,
       scope: "recent-project-page",
+    });
+  });
+
+  it("aggregates every accessible pipeline across the instance project set", async () => {
+    const result = await collectAllPipelinesForProjects([project(1, "group/one"), project(2, "group/two")], async (item) =>
+      item.id === 1 ? [pipeline(item.id), { ...pipeline(item.id), id: 11, status: "failed" }] : [pipeline(item.id)],
+    );
+
+    expect(result.items).toHaveLength(3);
+    expect(result.stats).toMatchObject({
+      totalPipelines: 3,
+      successfulPipelines: 2,
+      failedPipelines: 1,
+      complete: true,
+      scope: "instance",
     });
   });
 });

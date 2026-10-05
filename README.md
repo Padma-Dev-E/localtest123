@@ -17,21 +17,24 @@ All list endpoints use GitLab pagination metadata and return an `items` array pl
 
 ```text
 GET /api/projects?page=1&per_page=20&search=platform
+GET /api/projects?all=true
 GET /api/groups?page=1&per_page=100&search=platform
 GET /api/projects?group_id=123&include_subgroups=true&page=1&per_page=20
 GET /api/pipelines?project=all&page=1&per_page=20&hours=24
+GET /api/pipelines?project=all&all=true&page=1&per_page=100&hours=24
 GET /api/pipelines?project=123&page=1&per_page=20&hours=24&status=failed&ref=main
 GET /api/pipelines?group_id=123&include_subgroups=true&project=all&page=1&per_page=20&hours=24
 GET /api/runners?project=all&page=1&per_page=20
+GET /api/runners?project=all&all=true&page=1&per_page=100
 GET /api/runners?project=123&page=1&per_page=20
 GET /api/pipelines/123/456
 ```
 
-`project=all` pipeline requests paginate recently active projects, then read the recent pipelines for only that project page with a bounded concurrency of four. This keeps a large GitLab instance from receiving one request per project. For exact pipeline totals and native pipeline pagination, pass a project id. The detail endpoint is for a selected pipeline and loads its complete job and diagnostic data.
+`all=true` returns the complete accessible project, pipeline, or instance-runner collection in the response while `pagination` still describes the true resource total. For all-project pipelines, `projectPagination` describes the project set scanned; pipeline `pagination.total` is the pipeline total, not the project total. The all-project scan is bounded to the configured time window and uses bounded concurrency. The detail endpoint is for a selected pipeline and loads its complete job and diagnostic data.
 
 GitLab's project pipeline history is project-scoped, so an all-project view cannot be fulfilled by one complete-history REST call. GitLab's global `/pipelines` endpoint is limited to pipelines triggered by the authenticated user and is not a replacement for an organization-wide view. If one visible project denies pipeline access, the all-project response keeps the other projects and returns a warning instead of failing the whole request.
 
-Pipeline metrics are separate from the visible table page. A selected project uses GitLab's native pagination totals and status-filter totals, so its count and success rate cover the selected project's full time-window scope. All-project mode reports the aggregate for the current recently-active project page and marks that scope in the response; exact instance-wide analytics require a background collector or GitLab's Premium/Ultimate pipeline analytics.
+Pipeline metrics are calculated from the full accessible instance collection when `project=all`, not from the first response page. If GitLab denies access to any project, `stats.complete` is false and the response includes a warning. The runner endpoint requires a token that can read instance runner inventory; a Reporter token can still return HTTP 403.
 
 ## Local setup
 
@@ -69,6 +72,6 @@ The dashboard does not proxy job traces or pipeline variables because they can c
 - `lib/api-pagination.ts`: shared pagination parsing and request bounds
 - `lib/`: GitLab API integration and tests
 
-The initial dashboard request is intentionally light: it reads one project page for the total project count, scans only recently active projects for pipeline summaries, and reads one runner inventory page for names and status. Jobs, artifacts, retries, test reports, and failure reasons are loaded only by the pipeline detail endpoint.
+The initial dashboard request asks for all accessible projects, all pipelines in the selected time window, and the complete instance runner inventory. Jobs, artifacts, retries, test reports, and failure reasons are loaded only by the pipeline detail endpoint.
 
 The client store lives in `store/dashboard-slice.ts`. `OverviewView` and its group, action-required, project-health, and runner-health widgets consume the same resource pages and derived selectors. Pipeline diagnostics remain lazy-loaded after a pipeline row is selected.

@@ -1,6 +1,6 @@
-import { GitLabApiError, gitlabFetch, gitlabFetchPage, projectPath } from "./gitlab";
+import { GitLabApiError, gitlabFetch, gitlabFetchAll, gitlabFetchPage, projectPath } from "./gitlab";
 import { paginationFromHeaders, type ApiPagination } from "./api-pagination";
-import type { GitLabProject, GroupSummary, PipelineAggregateStats, PipelineSummary, RunnerSummary } from "./dashboard";
+import type { GitLabProject, GroupSummary, PipelineAggregateStats, PipelineSummary, RunnerAggregateStats, RunnerSummary } from "./dashboard";
 
 type GitLabPipeline = {
   id: number;
@@ -43,6 +43,16 @@ function aggregatePipelinePage(result: PageResult<PipelineSummary>, scope: Pipel
   const totalPipelines = result.pagination.total ?? result.items.length;
   const completed = successfulPipelines + failedPipelines + canceledPipelines + skippedPipelines;
   return { totalPipelines, successfulPipelines, failedPipelines, runningPipelines, canceledPipelines, skippedPipelines, successRate: completed ? Math.round((successfulPipelines / completed) * 100) : 0, complete: result.pagination.total !== null && result.pagination.total <= result.items.length, scope };
+}
+
+function aggregatePipelineItems(items: PipelineSummary[], scope: PipelineAggregateStats["scope"], complete: boolean): PipelineAggregateStats {
+  const successfulPipelines = items.filter((pipeline) => pipeline.status === "success").length;
+  const failedPipelines = items.filter((pipeline) => pipeline.status === "failed").length;
+  const canceledPipelines = items.filter((pipeline) => pipeline.status === "canceled").length;
+  const skippedPipelines = items.filter((pipeline) => pipeline.status === "skipped").length;
+  const runningPipelines = items.filter((pipeline) => ["running", "pending", "created", "waiting_for_resource", "preparing"].includes(pipeline.status)).length;
+  const completed = successfulPipelines + failedPipelines + canceledPipelines + skippedPipelines;
+  return { totalPipelines: items.length, successfulPipelines, failedPipelines, runningPipelines, canceledPipelines, skippedPipelines, successRate: completed ? Math.round((successfulPipelines / completed) * 100) : 0, complete, scope };
 }
 
 function query(params: Record<string, string | number | boolean | undefined>) {
@@ -101,10 +111,23 @@ export async function listGroupProjects(groupId: number, page: number, perPage: 
   return { items: response.data, pagination: paginationFromHeaders(response.headers, page, perPage, response.data.length) };
 }
 
+export async function listAllProjects(options: { lastActivityAfter?: string; groupId?: number; includeSubgroups?: boolean } = {}): Promise<GitLabProject[]> {
+  const path = options.groupId
+    ? `/groups/${options.groupId}/projects?${query({ simple: "true", include_subgroups: options.includeSubgroups, order_by: "last_activity_at", sort: "desc" })}`
+    : `/projects?${query({ simple: "true", last_activity_after: options.lastActivityAfter, order_by: "last_activity_at", sort: "desc" })}`;
+  return gitlabFetchAll<GitLabProject>(path);
+}
+
 export async function listPipelines(project: GitLabProject, page: number, perPage: number, options: { hours: number; status?: string; ref?: string; scope?: string }): Promise<PageResult<PipelineSummary>> {
   const after = new Date(Date.now() - options.hours * 60 * 60 * 1000).toISOString();
   const response = await gitlabFetchPage<GitLabPipeline[]>(`${projectPath(project.id, "/pipelines")}?${query({ updated_after: after, order_by: "updated_at", sort: "desc", status: options.status, scope: options.scope, ref: options.ref, page, per_page: perPage })}`);
   return { items: response.data.map((pipeline) => formatPipeline(project, pipeline)), pagination: paginationFromHeaders(response.headers, page, perPage, response.data.length) };
+}
+
+export async function listAllPipelines(project: GitLabProject, options: { hours: number; status?: string; ref?: string; scope?: string }): Promise<PipelineSummary[]> {
+  const after = new Date(Date.now() - options.hours * 60 * 60 * 1000).toISOString();
+  const pipelines = await gitlabFetchAll<GitLabPipeline>(`${projectPath(project.id, "/pipelines")}?${query({ updated_after: after, order_by: "updated_at", sort: "desc", status: options.status, scope: options.scope, ref: options.ref })}`);
+  return pipelines.map((pipeline) => formatPipeline(project, pipeline));
 }
 
 export function pipelineStatsForPage(result: PageResult<PipelineSummary>, scope: PipelineAggregateStats["scope"]): PipelineAggregateStats {
@@ -134,6 +157,20 @@ export async function listRunners(projectId: number | null, page: number, perPag
   const path = projectId ? `${projectPath(projectId, "/runners")}` : "/runners/all";
   const response = await gitlabFetchPage<GitLabRunner[]>(`${path}?${query({ page, per_page: perPage })}`);
   return { items: response.data, pagination: paginationFromHeaders(response.headers, page, perPage, response.data.length) };
+}
+
+export async function listAllRunners(): Promise<RunnerSummary[]> {
+  return gitlabFetchAll<RunnerSummary>("/runners/all");
+}
+
+export async function listAllRunnersForProject(projectId: number): Promise<RunnerSummary[]> {
+  return gitlabFetchAll<RunnerSummary>(projectPath(projectId, "/runners"));
+}
+
+export function runnerStats(items: RunnerSummary[], scope: RunnerAggregateStats["scope"] = "instance", complete = true): RunnerAggregateStats {
+  const onlineRunners = items.filter((runner) => !runner.paused && (runner.online || runner.status === "online")).length;
+  const pausedRunners = items.filter((runner) => runner.paused).length;
+  return { totalRunners: items.length, onlineRunners, offlineRunners: Math.max(items.length - onlineRunners, 0), pausedRunners, complete, scope };
 }
 
 async function mapConcurrent<T, R>(items: T[], concurrency: number, mapper: (item: T) => Promise<R>): Promise<R[]> {
@@ -184,6 +221,30 @@ export async function collectPipelinesForProjects(
   return {
     items,
     stats,
+    warnings: results.flatMap((entry) => entry.warning ? [entry.warning] : []),
+  };
+}
+
+export async function collectAllPipelinesForProjects(
+  projects: GitLabProject[],
+  loader: (project: GitLabProject) => Promise<PipelineSummary[]>,
+): Promise<{ items: PipelineSummary[]; stats: PipelineAggregateStats; warnings: string[] }> {
+  const results = await mapConcurrent(projects, 6, async (project) => {
+    try {
+      return { items: await loader(project) };
+    } catch (error) {
+      const reason = error instanceof GitLabApiError && error.status === 403
+        ? "GitLab denied access"
+        : error instanceof GitLabApiError && error.status === 404
+          ? "project or pipeline endpoint was not found"
+          : "GitLab request failed";
+      return { items: [] as PipelineSummary[], warning: `Pipeline data unavailable for ${project.path_with_namespace} (${reason})` };
+    }
+  });
+  const items = results.flatMap((entry) => entry.items);
+  return {
+    items,
+    stats: aggregatePipelineItems(items, "instance", results.every((entry) => !entry.warning)),
     warnings: results.flatMap((entry) => entry.warning ? [entry.warning] : []),
   };
 }

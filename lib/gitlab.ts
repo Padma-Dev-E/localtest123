@@ -1,6 +1,7 @@
 const DEFAULT_TIMEOUT_MS = 12_000;
 const PAGE_SIZE = 100;
-const MAX_PAGES = 50;
+const configuredMaxPages = Number.parseInt(process.env.GITLAB_MAX_PAGES || "500", 10);
+const MAX_PAGES = Number.isFinite(configuredMaxPages) ? Math.max(1, configuredMaxPages) : 500;
 
 export class GitLabApiError extends Error {
   readonly status: number;

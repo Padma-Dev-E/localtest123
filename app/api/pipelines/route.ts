@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { pageNumber, perPageNumber } from "@/lib/api-pagination";
-import { collectPipelinesForProjects, getProject, listGroupProjects, listPipelines, listProjects, pipelineStatsForPage, pipelineStatsForProject } from "@/lib/gitlab-resources";
+import { pageNumber, paginateItems, perPageNumber } from "@/lib/api-pagination";
+import { collectAllPipelinesForProjects, getProject, listAllPipelines, listAllProjects, listPipelines, pipelineStatsForPage, pipelineStatsForProject } from "@/lib/gitlab-resources";
 import { GitLabApiError } from "@/lib/gitlab";
+import { cached } from "@/lib/ttl-cache";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,7 @@ export async function GET(request: NextRequest) {
   const hours = Math.min(Math.max(Number(params.get("hours") || 24), 1), 168);
   const status = params.get("status") || undefined;
   const ref = params.get("ref") || undefined;
+  const allRecords = params.get("all") === "true";
   const groupValue = params.get("group_id");
   const groupId = groupValue === null ? null : Number(groupValue);
   const includeSubgroups = params.get("include_subgroups") === "true";
@@ -24,24 +26,34 @@ export async function GET(request: NextRequest) {
       const projectId = Number(project);
       if (!Number.isSafeInteger(projectId) || projectId < 1) return NextResponse.json({ error: "project must be all or a numeric project id" }, { status: 400 });
       const selected = await getProject(projectId);
-      const result = await listPipelines(selected, page, perPage, { hours, status, ref });
-      let stats = pipelineStatsForPage(result, "project");
+      if (allRecords) {
+        const items = await listAllPipelines(selected, { hours, status, ref });
+        const resolved = paginateItems(items, page, perPage);
+        const stats = pipelineStatsForPage({ items, pagination: resolved.pagination }, "project");
+        return NextResponse.json({ ...resolved, items, stats, filters: { project: projectId, groupId, includeSubgroups, hours, status: status || null, ref: ref || null, all: true } });
+      }
+      const resolved = await listPipelines(selected, page, perPage, { hours, status, ref });
+      let stats = pipelineStatsForPage(resolved, "project");
       if (!status) {
         try {
-          stats = await pipelineStatsForProject(selected, { hours, ref }, result);
+          stats = await pipelineStatsForProject(selected, { hours, ref }, resolved);
         } catch {
           // Keep the paginated project response usable if a status-specific permission differs.
         }
       }
-      return NextResponse.json({ ...result, stats, filters: { project: projectId, groupId, includeSubgroups, hours, status: status || null, ref: ref || null } });
+      return NextResponse.json({ ...resolved, stats, filters: { project: projectId, groupId, includeSubgroups, hours, status: status || null, ref: ref || null } });
     }
 
-    const projectPageSize = Math.min(perPage, 20);
-    const recentProjects = groupId
-      ? await listGroupProjects(groupId, page, projectPageSize, { includeSubgroups })
-      : await listProjects(page, projectPageSize, new Date(Date.now() - hours * 60 * 60 * 1000).toISOString());
-    const collected = await collectPipelinesForProjects(recentProjects.items, (item) => listPipelines(item, 1, 100, { hours, status, ref }));
-    return NextResponse.json({ items: collected.items.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)), pagination: recentProjects.pagination, stats: collected.stats, filters: { project: "all", groupId, includeSubgroups, hours, status: status || null, ref: ref || null }, warnings: collected.warnings, paginationNote: "Pipeline totals cover the current recently-active project page. Select a project for exact project-wide totals." });
+    const cacheKey = `pipelines:${groupId ?? "instance"}:${includeSubgroups}:${hours}:${status || "all"}:${ref || "all"}`;
+    const collected = await cached(cacheKey, async () => {
+      const projects = await listAllProjects({ groupId: groupId ?? undefined, includeSubgroups });
+      return { projects, collected: await collectAllPipelinesForProjects(projects, (item) => listAllPipelines(item, { hours, status, ref })) };
+    });
+    const projects = collected.projects;
+    const pipelineCollection = collected.collected;
+    const sorted = pipelineCollection.items.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+    const result = paginateItems(sorted, page, perPage);
+    return NextResponse.json({ ...result, items: allRecords ? sorted : result.items, projectPagination: paginateItems(projects, 1, projects.length || 1).pagination, stats: pipelineCollection.stats, filters: { project: "all", groupId, includeSubgroups, hours, status: status || null, ref: ref || null, all: allRecords }, warnings: pipelineCollection.warnings, paginationNote: "Pipeline pagination is across all accessible instance projects. projectPagination describes the project set that was scanned." });
   } catch (error) {
     const statusCode = error instanceof GitLabApiError
       ? error.status === 403 ? 403 : error.status === 404 ? 404 : 502
