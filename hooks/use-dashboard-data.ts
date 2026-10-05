@@ -1,33 +1,42 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
 
-import type { DashboardData } from "@/lib/dashboard";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import {
+  loadGroups,
+  loadResources,
+  selectDashboardData,
+  selectDashboardError,
+  selectDashboardLoading,
+  selectGroups,
+  selectLastRefresh,
+  type DashboardFilters,
+} from "@/store/dashboard-slice";
 
-export function useDashboardData(project: string) {
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [lastRefresh, setLastRefresh] = useState<string | null>(null);
+export function useDashboardData(filters: DashboardFilters) {
+  const dispatch = useAppDispatch();
+  const groups = useAppSelector(selectGroups);
+  const stateFilters = useAppSelector((state) => state.dashboard.filters);
+  const dataState = useAppSelector((state) => state.dashboard);
+  const data = useAppSelector(selectDashboardData);
+  const loading = useAppSelector(selectDashboardLoading);
+  const error = useAppSelector(selectDashboardError);
+  const lastRefresh = useAppSelector(selectLastRefresh);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const query = new URLSearchParams(project !== "all" ? { project } : {});
-      const response = await fetch(`/api/dashboard?${query.toString()}`, { cache: "no-store" });
-      const payload = (await response.json()) as DashboardData;
-      if (!response.ok && !payload.warnings?.length) throw new Error("Dashboard request failed");
-      setData(payload);
-      setLastRefresh(new Date().toISOString());
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Dashboard request failed");
-    } finally {
-      setLoading(false);
-    }
-  }, [project]);
+  const loadData = useCallback(() => {
+    void dispatch(loadGroups());
+    void dispatch(loadResources(filters));
+  }, [dispatch, filters]);
 
-  useEffect(() => { void loadData(); }, [loadData]);
+  useEffect(() => {
+    if (!groups.loaded) void dispatch(loadGroups());
+  }, [dispatch, groups.loaded]);
 
-  return { data, loading, error, lastRefresh, loadData };
+  useEffect(() => {
+    void dispatch(loadResources(filters));
+  }, [dispatch, filters]);
+
+  const hasData = dataState.projects.loaded || dataState.pipelines.loaded || dataState.runners.loaded;
+  return { data: hasData ? data : null, groups, loading, error, lastRefresh, loadData, filters: stateFilters };
 }

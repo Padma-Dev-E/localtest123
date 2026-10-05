@@ -7,6 +7,8 @@ Read-only GitLab delivery dashboard built with Next.js, ECharts, and GitLab's RE
 - Last-24-hour project, pipeline, job, and runner overview
 - Pipeline diagnostics with failed stages, failure reasons, retries, artifacts, test summaries, and downstream triggers
 - Runner names, status, version, and total count from the GitLab runner inventory
+- Group hierarchy, group search, subgroup-aware project filtering, and group health summaries
+- Reusable overview widgets backed by one Redux store to avoid duplicate browser requests
 - Server-side GitLab token handling; credentials are never sent to the browser
 
 ## Backend API
@@ -15,8 +17,11 @@ All list endpoints use GitLab pagination metadata and return an `items` array pl
 
 ```text
 GET /api/projects?page=1&per_page=20&search=platform
+GET /api/groups?page=1&per_page=100&search=platform
+GET /api/projects?group_id=123&include_subgroups=true&page=1&per_page=20
 GET /api/pipelines?project=all&page=1&per_page=20&hours=24
 GET /api/pipelines?project=123&page=1&per_page=20&hours=24&status=failed&ref=main
+GET /api/pipelines?group_id=123&include_subgroups=true&project=all&page=1&per_page=20&hours=24
 GET /api/runners?project=all&page=1&per_page=20
 GET /api/runners?project=123&page=1&per_page=20
 GET /api/pipelines/123/456
@@ -63,3 +68,5 @@ The dashboard does not proxy job traces or pipeline variables because they can c
 - `lib/`: GitLab API integration and tests
 
 The initial dashboard request is intentionally light: it reads one project page for the total project count, scans only recently active projects for pipeline summaries, and reads one runner inventory page for names and status. Jobs, artifacts, retries, test reports, and failure reasons are loaded only by the pipeline detail endpoint.
+
+The client store lives in `store/dashboard-slice.ts`. `OverviewView` and its group, action-required, project-health, and runner-health widgets consume the same resource pages and derived selectors. Pipeline diagnostics remain lazy-loaded after a pipeline row is selected.

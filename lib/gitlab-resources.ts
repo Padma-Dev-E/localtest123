@@ -1,6 +1,6 @@
 import { GitLabApiError, gitlabFetch, gitlabFetchPage, projectPath } from "./gitlab";
 import { paginationFromHeaders, type ApiPagination } from "./api-pagination";
-import type { GitLabProject, PipelineSummary, RunnerSummary } from "./dashboard";
+import type { GitLabProject, GroupSummary, PipelineSummary, RunnerSummary } from "./dashboard";
 
 type GitLabPipeline = {
   id: number;
@@ -33,7 +33,7 @@ type GitLabRunner = {
 
 export type PageResult<T> = { items: T[]; pagination: ApiPagination };
 
-function query(params: Record<string, string | number | undefined>) {
+function query(params: Record<string, string | number | boolean | undefined>) {
   const values = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) if (value !== undefined) values.set(key, String(value));
   return values.toString();
@@ -63,8 +63,29 @@ export async function getProject(projectId: number): Promise<GitLabProject> {
   return gitlabFetch<GitLabProject>(`/projects/${projectId}?simple=true`);
 }
 
+export async function listGroups(page: number, perPage: number, options: { search?: string; topLevelOnly?: boolean; allAvailable?: boolean; visibility?: string; active?: boolean; archived?: boolean; orderBy?: string; sort?: string }): Promise<PageResult<GroupSummary>> {
+  const response = await gitlabFetchPage<GroupSummary[]>(`/groups?${query({
+    search: options.search,
+    top_level_only: options.topLevelOnly,
+    all_available: options.allAvailable,
+    visibility: options.visibility,
+    active: options.active,
+    archived: options.archived,
+    order_by: options.orderBy || "name",
+    sort: options.sort || "asc",
+    page,
+    per_page: perPage,
+  })}`);
+  return { items: response.data, pagination: paginationFromHeaders(response.headers, page, perPage, response.data.length) };
+}
+
 export async function listProjects(page: number, perPage: number, lastActivityAfter?: string, search?: string): Promise<PageResult<GitLabProject>> {
   const response = await gitlabFetchPage<GitLabProject[]>(`/projects?${query({ simple: "true", order_by: "last_activity_at", sort: "desc", last_activity_after: lastActivityAfter, search, page, per_page: perPage })}`);
+  return { items: response.data, pagination: paginationFromHeaders(response.headers, page, perPage, response.data.length) };
+}
+
+export async function listGroupProjects(groupId: number, page: number, perPage: number, options: { search?: string; includeSubgroups?: boolean }): Promise<PageResult<GitLabProject>> {
+  const response = await gitlabFetchPage<GitLabProject[]>(`/groups/${groupId}/projects?${query({ simple: "true", search: options.search, include_subgroups: options.includeSubgroups, order_by: "last_activity_at", sort: "desc", page, per_page: perPage })}`);
   return { items: response.data, pagination: paginationFromHeaders(response.headers, page, perPage, response.data.length) };
 }
 

@@ -9,6 +9,30 @@ export type GitLabProject = {
   default_branch: string | null;
   last_activity_at: string | null;
   open_issues_count?: number;
+  namespace?: GitLabNamespace;
+};
+
+export type GitLabNamespace = {
+  id: number;
+  name: string;
+  path: string;
+  kind: "user" | "group" | string;
+  full_path: string;
+  parent_id?: number | null;
+  web_url?: string | null;
+};
+
+export type GroupSummary = {
+  id: number;
+  name: string;
+  path: string;
+  full_path: string;
+  full_name?: string;
+  parent_id?: number | null;
+  description?: string | null;
+  visibility?: string;
+  web_url?: string | null;
+  avatar_url?: string | null;
 };
 
 type GitLabPipeline = {
