@@ -21,8 +21,8 @@ GET /api/projects?all=true
 GET /api/groups?page=1&per_page=100&search=platform
 GET /api/projects?group_id=123&include_subgroups=true&page=1&per_page=20
 GET /api/pipelines?project=all&page=1&per_page=20&hours=24
-GET /api/pipelines?project=all&all=true&page=1&per_page=100&hours=24
-GET /api/pipelines?project=all&all=true&page=1&per_page=100&hours=0
+GET /api/pipelines?project=all&summary=true&page=1&per_page=100&hours=24
+GET /api/pipelines?project=all&summary=true&page=1&per_page=100&hours=0
 GET /api/pipelines?project=123&page=1&per_page=20&hours=24&status=failed&ref=main
 GET /api/pipelines?group_id=123&include_subgroups=true&project=all&page=1&per_page=20&hours=24
 GET /api/runners?project=all&page=1&per_page=20
@@ -31,18 +31,18 @@ GET /api/runners?project=123&page=1&per_page=20
 GET /api/pipelines/123/456
 ```
 
-`all=true` returns the complete accessible project, pipeline, or instance-runner collection in the response while `pagination` still describes the true resource total. For all-project pipelines, `projectPagination` describes the project set scanned; pipeline `pagination.total` is the pipeline total, not the project total. The all-project scan is bounded to the configured time window and uses bounded concurrency. The detail endpoint is for a selected pipeline and loads its complete job and diagnostic data.
+The dashboard's `summary=true` pipeline request loads one paginated set of rows from GitLab's direct `/pipelines` endpoint and uses Enterprise pipeline analytics for instance-wide counts, status distribution, and trends. This avoids crawling every project during the initial page load. The detail endpoint is for a selected pipeline and loads its complete job and diagnostic data.
 
 The `hours` filter is sent by the frontend. Positive values filter by `updated_after`; `hours=0` omits the time filter and requests all available pipeline history.
 
-GitLab's project pipeline history is project-scoped, so an all-project view cannot be fulfilled by one complete-history REST call. GitLab's global `/pipelines` endpoint is limited to pipelines triggered by the authenticated user and is not a replacement for an organization-wide view. If one visible project denies pipeline access, the all-project response keeps the other projects and returns a warning instead of failing the whole request.
+GitLab's project pipeline history is project-scoped. The global `/pipelines` endpoint is used only for the visible latest rows and is limited to pipelines triggered by the authenticated user. For instance summary metrics, the server queries Enterprise GLQL pipeline analytics across accessible top-level groups (including subgroups) in bounded chunks. If that capability or runner inventory is denied, the response stays usable and returns an explicit warning.
 
-Pipeline metrics are calculated from the full accessible instance collection when `project=all`, not from the first response page. If GitLab denies access to any project, `stats.complete` is false and the response includes a warning. The runner endpoint requires a token that can read instance runner inventory; a Reporter token can still return HTTP 403.
+When Enterprise pipeline analytics is unavailable, the response keeps the direct rows and marks the stats scope as `authenticated-user` with a warning; those counts are page-level, not instance-wide. The runner endpoint requires a token that can read instance runner inventory; a Reporter token can still return HTTP 403.
 
 ## Local setup
 
 1. Copy `.env.example` to `.env`.
-2. Set `GITLAB_URL` and a read-only GitLab API token in `.env`.
+2. Set `GITLAB_URL` and a read-only Enterprise/Auditor API token in `GITLAB_API_TOKEN` in `.env`. `GITLAB_REPORTER_TOKEN` is only a compatibility fallback and cannot provide instance runner inventory or Enterprise aggregate metrics.
 3. Install and run:
 
 ```bash
@@ -75,6 +75,6 @@ The dashboard does not proxy job traces or pipeline variables because they can c
 - `lib/api-pagination.ts`: shared pagination parsing and request bounds
 - `lib/`: GitLab API integration and tests
 
-The initial dashboard request asks for all accessible projects, all pipelines in the selected time window, and the complete instance runner inventory. Jobs, artifacts, retries, test reports, and failure reasons are loaded only by the pipeline detail endpoint.
+The initial dashboard request asks for the first page of accessible projects, a paginated direct pipeline page plus Enterprise aggregate metrics, and the complete instance runner inventory. Jobs, artifacts, retries, test reports, and failure reasons are loaded only by the pipeline detail endpoint.
 
 The client store lives in `store/dashboard-slice.ts`. `OverviewView` and its group, action-required, project-health, and runner-health widgets consume the same resource pages and derived selectors. Pipeline diagnostics remain lazy-loaded after a pipeline row is selected.

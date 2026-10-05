@@ -129,7 +129,16 @@ export type PipelineAggregateStats = {
   skippedPipelines: number;
   successRate: number;
   complete: boolean;
-  scope: "project" | "instance" | "recent-project-page";
+  scope: "project" | "instance" | "authenticated-user" | "recent-project-page";
+  statusCounts?: Record<string, number>;
+  trend?: PipelineTrendPoint[];
+};
+
+export type PipelineTrendPoint = {
+  bucket: string;
+  total: number;
+  successful: number;
+  failed: number;
 };
 
 export type RunnerAggregateStats = {

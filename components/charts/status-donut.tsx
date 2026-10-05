@@ -3,9 +3,10 @@
 import type { PipelineSummary } from "@/lib/dashboard";
 import { EChart } from "./echart";
 
-export function StatusDonut({ pipelines }: { pipelines: PipelineSummary[] }) {
+export function StatusDonut({ pipelines, statusCounts }: { pipelines: PipelineSummary[]; statusCounts?: Record<string, number> }) {
   const counts = new Map<string, number>();
-  for (const pipeline of pipelines) counts.set(pipeline.status, (counts.get(pipeline.status) || 0) + 1);
+  if (statusCounts) Object.entries(statusCounts).forEach(([status, count]) => counts.set(status, count));
+  else for (const pipeline of pipelines) counts.set(pipeline.status, (counts.get(pipeline.status) || 0) + 1);
   const data = [...counts.entries()].map(([name, value]) => ({ name, value }));
   return <EChart ariaLabel="Pipeline status distribution" option={{
     animation: false,

@@ -88,12 +88,12 @@ async function loadResource<T>(url: string, label: string) {
 export const loadGroups = createAsyncThunk("dashboard/loadGroups", async () => loadResource<GroupSummary>("/api/groups?page=1&per_page=100", "Groups"));
 
 export const loadResources = createAsyncThunk("dashboard/loadResources", async (filters: DashboardFilters) => {
-  const projectParams = new URLSearchParams({ page: "1", per_page: "100", all: "true" });
+  const projectParams = new URLSearchParams({ page: "1", per_page: "100" });
   if (filters.groupId) {
     projectParams.set("group_id", String(filters.groupId));
     projectParams.set("include_subgroups", String(filters.includeSubgroups));
   }
-  const pipelineParams = new URLSearchParams({ project: filters.projectId ? String(filters.projectId) : "all", page: "1", per_page: "100", all: "true", hours: String(filters.hours) });
+  const pipelineParams = new URLSearchParams({ project: filters.projectId ? String(filters.projectId) : "all", page: "1", per_page: "100", summary: "true", hours: String(filters.hours) });
   if (filters.groupId) {
     pipelineParams.set("group_id", String(filters.groupId));
     pipelineParams.set("include_subgroups", String(filters.includeSubgroups));

@@ -1,11 +1,12 @@
 "use client";
 
-import type { PipelineSummary } from "@/lib/dashboard";
+import type { PipelineSummary, PipelineTrendPoint } from "@/lib/dashboard";
 import { EChart } from "./echart";
 
-export function PipelineTrend({ pipelines }: { pipelines: PipelineSummary[] }) {
+export function PipelineTrend({ pipelines, trend }: { pipelines: PipelineSummary[]; trend?: PipelineTrendPoint[] }) {
   const days = new Map<string, { total: number; successful: number; failed: number }>();
-  for (const pipeline of pipelines) {
+  if (trend?.length) trend.forEach((point) => days.set(point.bucket, point));
+  else for (const pipeline of pipelines) {
     const date = new Date(pipeline.createdAt);
     date.setMinutes(0, 0, 0);
     const hour = Number.isNaN(date.getTime()) ? pipeline.createdAt : date.toISOString();
@@ -18,7 +19,8 @@ export function PipelineTrend({ pipelines }: { pipelines: PipelineSummary[] }) {
   const labels = [...days.keys()].sort();
   const displayLabels = labels.map((hour) => {
     const date = new Date(hour);
-    return Number.isNaN(date.getTime()) ? hour : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    if (Number.isNaN(date.getTime())) return hour;
+    return trend?.length ? date.toLocaleDateString([], { month: "short", day: "numeric" }) : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   });
   return <EChart ariaLabel="Pipeline volume and outcome trend" option={{
     animation: false,

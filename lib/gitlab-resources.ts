@@ -1,6 +1,6 @@
 import { GitLabApiError, gitlabFetch, gitlabFetchAll, gitlabFetchPage, projectPath } from "./gitlab";
 import { paginationFromHeaders, type ApiPagination } from "./api-pagination";
-import type { GitLabProject, GroupSummary, PipelineAggregateStats, PipelineSummary, RunnerAggregateStats, RunnerSummary } from "./dashboard";
+import type { GitLabProject, GroupSummary, PipelineAggregateStats, PipelineSummary, PipelineTrendPoint, RunnerAggregateStats, RunnerSummary } from "./dashboard";
 import { cutoffForHours } from "./time-window";
 
 type GitLabPipeline = {
@@ -18,6 +18,13 @@ type GitLabPipeline = {
   duration?: number | null;
   queued_duration?: number | null;
   web_url?: string;
+  project?: {
+    id?: number;
+    name?: string;
+    path?: string;
+    path_with_namespace?: string;
+    web_url?: string;
+  };
 };
 
 type GitLabRunner = {
@@ -47,13 +54,17 @@ function aggregatePipelinePage(result: PageResult<PipelineSummary>, scope: Pipel
 }
 
 function aggregatePipelineItems(items: PipelineSummary[], scope: PipelineAggregateStats["scope"], complete: boolean): PipelineAggregateStats {
+  const statusCounts = items.reduce<Record<string, number>>((counts, pipeline) => {
+    counts[pipeline.status] = (counts[pipeline.status] || 0) + 1;
+    return counts;
+  }, {});
   const successfulPipelines = items.filter((pipeline) => pipeline.status === "success").length;
   const failedPipelines = items.filter((pipeline) => pipeline.status === "failed").length;
   const canceledPipelines = items.filter((pipeline) => pipeline.status === "canceled").length;
   const skippedPipelines = items.filter((pipeline) => pipeline.status === "skipped").length;
   const runningPipelines = items.filter((pipeline) => ["running", "pending", "created", "waiting_for_resource", "preparing"].includes(pipeline.status)).length;
   const completed = successfulPipelines + failedPipelines + canceledPipelines + skippedPipelines;
-  return { totalPipelines: items.length, successfulPipelines, failedPipelines, runningPipelines, canceledPipelines, skippedPipelines, successRate: completed ? Math.round((successfulPipelines / completed) * 100) : 0, complete, scope };
+  return { totalPipelines: items.length, successfulPipelines, failedPipelines, runningPipelines, canceledPipelines, skippedPipelines, successRate: completed ? Math.round((successfulPipelines / completed) * 100) : 0, complete, scope, statusCounts };
 }
 
 function query(params: Record<string, string | number | boolean | undefined>) {
@@ -79,6 +90,28 @@ function formatPipeline(project: GitLabProject, pipeline: GitLabPipeline): Pipel
     duration: pipeline.duration ?? null,
     queuedDuration: pipeline.queued_duration ?? null,
     webUrl: pipeline.web_url || `${project.web_url}/-/pipelines/${pipeline.id}`,
+  };
+}
+
+function formatGlobalPipeline(pipeline: GitLabPipeline): PipelineSummary {
+  const projectName = pipeline.project?.path_with_namespace || pipeline.project?.name || `project/${pipeline.project_id}`;
+  const projectUrl = pipeline.project?.web_url;
+  return {
+    id: pipeline.id,
+    projectId: pipeline.project_id,
+    projectName,
+    status: pipeline.status?.toLowerCase() || "unknown",
+    ref: pipeline.ref,
+    iid: pipeline.iid,
+    sha: pipeline.sha,
+    source: pipeline.source,
+    createdAt: pipeline.created_at,
+    updatedAt: pipeline.updated_at,
+    startedAt: pipeline.started_at ?? null,
+    finishedAt: pipeline.finished_at ?? null,
+    duration: pipeline.duration ?? null,
+    queuedDuration: pipeline.queued_duration ?? null,
+    webUrl: pipeline.web_url || (projectUrl ? `${projectUrl}/-/pipelines/${pipeline.id}` : ""),
   };
 }
 
@@ -119,6 +152,10 @@ export async function listAllProjects(options: { lastActivityAfter?: string; gro
   return gitlabFetchAll<GitLabProject>(path);
 }
 
+export async function listAllTopLevelGroups(): Promise<GroupSummary[]> {
+  return gitlabFetchAll<GroupSummary>(`/groups?${query({ top_level_only: true, all_available: true, order_by: "name", sort: "asc" })}`);
+}
+
 export async function listPipelines(project: GitLabProject, page: number, perPage: number, options: { hours: number; status?: string; ref?: string; scope?: string }): Promise<PageResult<PipelineSummary>> {
   const after = cutoffForHours(options.hours);
   const response = await gitlabFetchPage<GitLabPipeline[]>(`${projectPath(project.id, "/pipelines")}?${query({ updated_after: after, order_by: "updated_at", sort: "desc", status: options.status, scope: options.scope, ref: options.ref, page, per_page: perPage })}`);
@@ -131,8 +168,132 @@ export async function listAllPipelines(project: GitLabProject, options: { hours:
   return pipelines.map((pipeline) => formatPipeline(project, pipeline));
 }
 
+function nextLinkPath(headers: Headers): string | null {
+  const link = headers.get("link")?.match(/<([^>]+)>;\s*rel=["']next["']/i)?.[1];
+  if (!link) return null;
+  const url = new URL(link, "https://pagination.invalid");
+  return `${url.pathname.replace(/^\/api\/v4/, "")}${url.search}`;
+}
+
+export async function listGlobalPipelinesPage(page: number, perPage: number, options: { hours: number; projectId?: number }): Promise<PageResult<PipelineSummary>> {
+  const after = cutoffForHours(options.hours);
+  let path = `/pipelines?${query({ created_after: after, order_by: "created_at", sort: "desc", project: options.projectId, per_page: perPage })}`;
+  let response = await gitlabFetchPage<GitLabPipeline[]>(path);
+  for (let currentPage = 1; currentPage < page; currentPage += 1) {
+    const next = nextLinkPath(response.headers);
+    if (!next) return { items: [], pagination: { page, perPage, total: null, totalPages: null, hasNext: false, hasPrevious: page > 1, nextPage: null, previousPage: page > 1 ? page - 1 : null } };
+    response = await gitlabFetchPage<GitLabPipeline[]>(next);
+  }
+  const pagination = paginationFromHeaders(response.headers, page, perPage, response.data.length);
+  const hasNext = Boolean(nextLinkPath(response.headers)) || pagination.hasNext;
+  return { items: response.data.map(formatGlobalPipeline), pagination: { ...pagination, hasNext, nextPage: hasNext ? page + 1 : null, previousPage: page > 1 ? page - 1 : null } };
+}
+
+type GlqlAnalyticsResponse = {
+  success?: boolean;
+  error?: string | null;
+  data?: { nodes?: Array<Record<string, unknown>> };
+};
+
+function yamlQuote(value: string): string {
+  return JSON.stringify(value).replaceAll("\\n", " ");
+}
+
+export async function pipelineAnalytics(options: { hours: number; project?: string; group?: string; groups?: string[]; status?: string; ref?: string }): Promise<PipelineAggregateStats> {
+  const filters = ["type = Pipeline"];
+  if (options.project) filters.push(`project = ${yamlQuote(options.project)}`);
+  if (options.groups?.length) filters.push(`group in (${options.groups.map(yamlQuote).join(", ")})`);
+  else if (options.group) filters.push(`group = ${yamlQuote(options.group)}`);
+  else if (!options.project) throw new GitLabApiError("Pipeline analytics requires a project or group scope", 400, "/glql");
+  if (options.hours > 0) filters.push(`started >= -${Math.max(1, Math.ceil(options.hours / 24))}d`);
+  if (options.status) filters.push(`status = ${yamlQuote(options.status)}`);
+  if (options.ref) filters.push(`ref = ${yamlQuote(options.ref)}`);
+  const granularity = options.hours === 0 ? "monthly" : "daily";
+  const glqlYaml = [
+    "mode: analytics",
+    "display: table",
+    `query: ${filters.join(" and ")}`,
+    `dimensions: started(${granularity}) as \"Bucket\", status as \"Status\"`,
+    `metrics: totalCount as \"Total\"`,
+    "sort: started asc",
+    "limit: 100",
+  ].join("\n");
+  const response = await gitlabFetch<GlqlAnalyticsResponse>("/glql", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ glql_yaml: glqlYaml }),
+  });
+  if (response.success === false || response.error || !response.data?.nodes) throw new GitLabApiError(response.error || "GitLab pipeline analytics returned no data", 502, "/glql");
+  const statusCounts: Record<string, number> = {};
+  const trend = new Map<string, PipelineTrendPoint>();
+  for (const node of response.data.nodes) {
+    const status = String(node.Status ?? node.status ?? "unknown").toLowerCase();
+    const bucket = String(node.Bucket ?? node.bucket ?? node.started ?? "unknown");
+    const total = Number(node.Total ?? node.total ?? node.totalCount ?? 0) || 0;
+    statusCounts[status] = (statusCounts[status] || 0) + total;
+    const point = trend.get(bucket) || { bucket, total: 0, successful: 0, failed: 0 };
+    point.total += total;
+    if (status === "success") point.successful += total;
+    if (status === "failed") point.failed += total;
+    trend.set(bucket, point);
+  }
+  const successfulPipelines = statusCounts.success || 0;
+  const failedPipelines = statusCounts.failed || 0;
+  const canceledPipelines = statusCounts.canceled || 0;
+  const skippedPipelines = statusCounts.skipped || 0;
+  const runningPipelines = ["running", "pending", "created", "waiting_for_resource", "preparing"].reduce((sum, status) => sum + (statusCounts[status] || 0), 0);
+  const completed = successfulPipelines + failedPipelines + canceledPipelines + skippedPipelines;
+  return { totalPipelines: Object.values(statusCounts).reduce((sum, count) => sum + count, 0), successfulPipelines, failedPipelines, runningPipelines, canceledPipelines, skippedPipelines, successRate: completed ? Math.round((successfulPipelines / completed) * 100) : 0, complete: true, scope: options.project ? "project" : "instance", statusCounts, trend: [...trend.values()].sort((a, b) => a.bucket.localeCompare(b.bucket)) };
+}
+
+function mergePipelineStats(stats: PipelineAggregateStats[]): PipelineAggregateStats {
+  const statusCounts: Record<string, number> = {};
+  const trend = new Map<string, PipelineTrendPoint>();
+  for (const current of stats) {
+    for (const [status, count] of Object.entries(current.statusCounts || {})) statusCounts[status] = (statusCounts[status] || 0) + count;
+    for (const point of current.trend || []) {
+      const merged = trend.get(point.bucket) || { bucket: point.bucket, total: 0, successful: 0, failed: 0 };
+      merged.total += point.total;
+      merged.successful += point.successful;
+      merged.failed += point.failed;
+      trend.set(point.bucket, merged);
+    }
+  }
+  const successfulPipelines = statusCounts.success || 0;
+  const failedPipelines = statusCounts.failed || 0;
+  const canceledPipelines = statusCounts.canceled || 0;
+  const skippedPipelines = statusCounts.skipped || 0;
+  const runningPipelines = ["running", "pending", "created", "waiting_for_resource", "preparing"].reduce((sum, status) => sum + (statusCounts[status] || 0), 0);
+  const completed = successfulPipelines + failedPipelines + canceledPipelines + skippedPipelines;
+  return { totalPipelines: Object.values(statusCounts).reduce((sum, count) => sum + count, 0), successfulPipelines, failedPipelines, runningPipelines, canceledPipelines, skippedPipelines, successRate: completed ? Math.round((successfulPipelines / completed) * 100) : 0, complete: stats.every((item) => item.complete), scope: "instance", statusCounts, trend: [...trend.values()].sort((a, b) => a.bucket.localeCompare(b.bucket)) };
+}
+
+export async function instancePipelineAnalytics(options: { hours: number; status?: string; ref?: string }): Promise<PipelineAggregateStats> {
+  const groups = await listAllTopLevelGroups();
+  if (!groups.length) throw new GitLabApiError("No accessible top-level groups were found for pipeline analytics", 403, "/groups");
+  const groupPaths = groups.map((group) => group.full_path).filter(Boolean);
+  const chunks: string[][] = [];
+  let current: string[] = [];
+  for (const groupPath of groupPaths) {
+    const next = [...current, groupPath];
+    if (current.length && next.join(", ").length > 7_500) {
+      chunks.push(current);
+      current = [groupPath];
+    } else {
+      current = next;
+    }
+  }
+  if (current.length) chunks.push(current);
+  const stats = await mapConcurrent(chunks, 3, (group) => pipelineAnalytics({ hours: options.hours, groups: group, status: options.status, ref: options.ref }));
+  return mergePipelineStats(stats);
+}
+
 export function pipelineStatsForPage(result: PageResult<PipelineSummary>, scope: PipelineAggregateStats["scope"]): PipelineAggregateStats {
   return aggregatePipelinePage(result, scope);
+}
+
+export function pipelineStatsForItems(items: PipelineSummary[], scope: PipelineAggregateStats["scope"], complete = true): PipelineAggregateStats {
+  return aggregatePipelineItems(items, scope, complete);
 }
 
 export async function pipelineStatsForProject(project: GitLabProject, options: { hours: number; ref?: string }, base: PageResult<PipelineSummary>): Promise<PipelineAggregateStats> {
