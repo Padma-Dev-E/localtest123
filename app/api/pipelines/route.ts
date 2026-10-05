@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { pageNumber, perPageNumber } from "@/lib/api-pagination";
-import { getProject, listPipelines, listProjects, mapConcurrent } from "@/lib/gitlab-resources";
+import { collectPipelinesForProjects, getProject, listPipelines, listProjects } from "@/lib/gitlab-resources";
 import { GitLabApiError } from "@/lib/gitlab";
 
 export const dynamic = "force-dynamic";
@@ -25,10 +25,12 @@ export async function GET(request: NextRequest) {
 
     const projectPageSize = Math.min(perPage, 20);
     const recentProjects = await listProjects(page, projectPageSize, new Date(Date.now() - hours * 60 * 60 * 1000).toISOString());
-    const results = await mapConcurrent(recentProjects.items, 4, (item) => listPipelines(item, 1, 100, { hours, status, ref }));
-    return NextResponse.json({ items: results.flatMap((result) => result.items).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)), pagination: recentProjects.pagination, filters: { project: "all", hours, status: status || null, ref: ref || null }, paginationNote: "For exact pipeline pagination, select a project. All-project mode paginates recently active projects to avoid a 5,000-project fan-out." });
+    const collected = await collectPipelinesForProjects(recentProjects.items, (item) => listPipelines(item, 1, 100, { hours, status, ref }));
+    return NextResponse.json({ items: collected.items.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)), pagination: recentProjects.pagination, filters: { project: "all", hours, status: status || null, ref: ref || null }, warnings: collected.warnings, paginationNote: "For exact pipeline pagination, select a project. All-project mode paginates recently active projects to avoid a 5,000-project fan-out." });
   } catch (error) {
-    const statusCode = error instanceof GitLabApiError && error.status === 404 ? 404 : 502;
+    const statusCode = error instanceof GitLabApiError
+      ? error.status === 403 ? 403 : error.status === 404 ? 404 : 502
+      : 502;
     return NextResponse.json({ error: "Pipelines could not be loaded" }, { status: statusCode });
   }
 }

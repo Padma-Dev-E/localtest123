@@ -1,4 +1,4 @@
-import { gitlabFetch, gitlabFetchPage, projectPath } from "./gitlab";
+import { GitLabApiError, gitlabFetch, gitlabFetchPage, projectPath } from "./gitlab";
 import { paginationFromHeaders, type ApiPagination } from "./api-pagination";
 import type { GitLabProject, PipelineSummary, RunnerSummary } from "./dashboard";
 
@@ -91,6 +91,29 @@ async function mapConcurrent<T, R>(items: T[], concurrency: number, mapper: (ite
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
   return results;
+}
+
+export async function collectPipelinesForProjects(
+  projects: GitLabProject[],
+  loader: (project: GitLabProject) => Promise<PageResult<PipelineSummary>>,
+): Promise<{ items: PipelineSummary[]; warnings: string[] }> {
+  const results = await mapConcurrent(projects, 4, async (project) => {
+    try {
+      return { result: await loader(project) };
+    } catch (error) {
+      const reason = error instanceof GitLabApiError && error.status === 403
+        ? "GitLab denied access"
+        : error instanceof GitLabApiError && error.status === 404
+          ? "project or pipeline endpoint was not found"
+          : "GitLab request failed";
+      return { warning: `Pipeline data unavailable for ${project.path_with_namespace} (${reason})` };
+    }
+  });
+
+  return {
+    items: results.flatMap((entry) => entry.result?.items || []),
+    warnings: results.flatMap((entry) => entry.warning ? [entry.warning] : []),
+  };
 }
 
 export { mapConcurrent };

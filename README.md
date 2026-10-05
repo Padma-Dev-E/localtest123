@@ -24,6 +24,8 @@ GET /api/pipelines/123/456
 
 `project=all` pipeline requests paginate recently active projects, then read the recent pipelines for only that project page with a bounded concurrency of four. This keeps a large GitLab instance from receiving one request per project. For exact pipeline totals and native pipeline pagination, pass a project id. The detail endpoint is for a selected pipeline and loads its complete job and diagnostic data.
 
+GitLab's project pipeline history is project-scoped, so an all-project view cannot be fulfilled by one complete-history REST call. GitLab's global `/pipelines` endpoint is limited to pipelines triggered by the authenticated user and is not a replacement for an organization-wide view. If one visible project denies pipeline access, the all-project response keeps the other projects and returns a warning instead of failing the whole request.
+
 ## Local setup
 
 1. Copy `.env.example` to `.env`.
