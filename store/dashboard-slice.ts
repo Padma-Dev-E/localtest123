@@ -6,6 +6,7 @@ import {
   type DashboardData,
   type GitLabProject,
   type GroupSummary,
+  type PipelineAggregateStats,
   type PipelineSummary,
   type RunnerSummary,
 } from "@/lib/dashboard";
@@ -29,6 +30,7 @@ export type ResourcePage<T> = {
 type ApiPage<T> = {
   items: T[];
   pagination: ApiPagination;
+  stats?: PipelineAggregateStats;
   warnings?: string[];
   error?: string;
 };
@@ -38,6 +40,7 @@ export type DashboardState = {
   groups: ResourcePage<GroupSummary>;
   projects: ResourcePage<GitLabProject>;
   pipelines: ResourcePage<PipelineSummary>;
+  pipelineStats: PipelineAggregateStats | null;
   runners: ResourcePage<RunnerSummary>;
   runnerSource: "inventory" | "unavailable";
   warnings: string[];
@@ -53,6 +56,7 @@ const initialState: DashboardState = {
   groups: emptyPage<GroupSummary>(),
   projects: emptyPage<GitLabProject>(),
   pipelines: emptyPage<PipelineSummary>(),
+  pipelineStats: null,
   runners: emptyPage<RunnerSummary>(),
   runnerSource: "unavailable",
   warnings: [],
@@ -140,6 +144,7 @@ const dashboardSlice = createSlice({
         state.warnings = mergeWarnings(action.payload.warnings);
         state.projects = { items: projects.page?.items || [], pagination: projects.page?.pagination || null, loading: false, loaded: true, error: projects.page ? null : projects.warnings[0] || null };
         state.pipelines = { items: pipelines.page?.items || [], pagination: pipelines.page?.pagination || null, loading: false, loaded: true, error: pipelines.page ? null : pipelines.warnings[0] || null };
+        state.pipelineStats = pipelines.page?.stats || null;
         state.runners = { items: runners.page?.items || [], pagination: runners.page?.pagination || null, loading: false, loaded: true, error: runners.page ? null : runners.warnings[0] || null };
         state.runnerSource = runners.page ? "inventory" : "unavailable";
       })
@@ -167,6 +172,13 @@ export const selectDashboardData = createSelector(selectDashboardState, (state):
   }
   const projects = state.projects.items.map((project) => ({ ...project, latestPipeline: latestByProject.get(project.id) }));
   const metrics = buildPipelineMetrics(state.pipelines.items);
+  if (state.pipelineStats) {
+    metrics.totalPipelines = state.pipelineStats.totalPipelines;
+    metrics.successfulPipelines = state.pipelineStats.successfulPipelines;
+    metrics.failedPipelines = state.pipelineStats.failedPipelines;
+    metrics.runningPipelines = state.pipelineStats.runningPipelines;
+    metrics.successRate = state.pipelineStats.successRate;
+  }
   metrics.visibleRunners = state.runners.items.filter((runner) => runner.online && !runner.paused).length;
   return {
     generatedAt: state.lastRefresh || new Date(0).toISOString(),
@@ -175,6 +187,7 @@ export const selectDashboardData = createSelector(selectDashboardState, (state):
     runnerCount: state.runners.pagination?.total ?? state.runners.items.length,
     projects,
     pipelines: state.pipelines.items,
+    pipelineStats: state.pipelineStats || undefined,
     jobs: [],
     runners: state.runners.items,
     runnerSource: state.runnerSource,

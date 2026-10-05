@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { pageNumber, perPageNumber } from "@/lib/api-pagination";
-import { collectPipelinesForProjects, getProject, listGroupProjects, listPipelines, listProjects } from "@/lib/gitlab-resources";
+import { collectPipelinesForProjects, getProject, listGroupProjects, listPipelines, listProjects, pipelineStatsForPage, pipelineStatsForProject } from "@/lib/gitlab-resources";
 import { GitLabApiError } from "@/lib/gitlab";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +24,16 @@ export async function GET(request: NextRequest) {
       const projectId = Number(project);
       if (!Number.isSafeInteger(projectId) || projectId < 1) return NextResponse.json({ error: "project must be all or a numeric project id" }, { status: 400 });
       const selected = await getProject(projectId);
-      return NextResponse.json({ ...(await listPipelines(selected, page, perPage, { hours, status, ref })), filters: { project: projectId, groupId, includeSubgroups, hours, status: status || null, ref: ref || null } });
+      const result = await listPipelines(selected, page, perPage, { hours, status, ref });
+      let stats = pipelineStatsForPage(result, "project");
+      if (!status) {
+        try {
+          stats = await pipelineStatsForProject(selected, { hours, ref }, result);
+        } catch {
+          // Keep the paginated project response usable if a status-specific permission differs.
+        }
+      }
+      return NextResponse.json({ ...result, stats, filters: { project: projectId, groupId, includeSubgroups, hours, status: status || null, ref: ref || null } });
     }
 
     const projectPageSize = Math.min(perPage, 20);
@@ -32,7 +41,7 @@ export async function GET(request: NextRequest) {
       ? await listGroupProjects(groupId, page, projectPageSize, { includeSubgroups })
       : await listProjects(page, projectPageSize, new Date(Date.now() - hours * 60 * 60 * 1000).toISOString());
     const collected = await collectPipelinesForProjects(recentProjects.items, (item) => listPipelines(item, 1, 100, { hours, status, ref }));
-    return NextResponse.json({ items: collected.items.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)), pagination: recentProjects.pagination, filters: { project: "all", groupId, includeSubgroups, hours, status: status || null, ref: ref || null }, warnings: collected.warnings, paginationNote: "For exact pipeline pagination, select a project. All-project mode paginates recently active projects to avoid a 5,000-project fan-out." });
+    return NextResponse.json({ items: collected.items.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)), pagination: recentProjects.pagination, stats: collected.stats, filters: { project: "all", groupId, includeSubgroups, hours, status: status || null, ref: ref || null }, warnings: collected.warnings, paginationNote: "Pipeline totals cover the current recently-active project page. Select a project for exact project-wide totals." });
   } catch (error) {
     const statusCode = error instanceof GitLabApiError
       ? error.status === 403 ? 403 : error.status === 404 ? 404 : 502

@@ -119,6 +119,18 @@ export type PipelineSummary = {
   webUrl: string;
 };
 
+export type PipelineAggregateStats = {
+  totalPipelines: number;
+  successfulPipelines: number;
+  failedPipelines: number;
+  runningPipelines: number;
+  canceledPipelines: number;
+  skippedPipelines: number;
+  successRate: number;
+  complete: boolean;
+  scope: "project" | "recent-project-page";
+};
+
 export type JobSummary = GitLabJob & { projectId: number; projectName: string };
 export type RunnerSummary = GitLabRunner;
 export type ProjectSummary = GitLabProject & { latestPipeline?: PipelineSummary };
@@ -143,6 +155,7 @@ export type DashboardData = {
   runnerCount: number;
   projects: ProjectSummary[];
   pipelines: PipelineSummary[];
+  pipelineStats?: PipelineAggregateStats;
   jobs: JobSummary[];
   runners: RunnerSummary[];
   runnerSource: "inventory" | "unavailable";

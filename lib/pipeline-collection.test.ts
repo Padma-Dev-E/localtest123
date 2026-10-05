@@ -33,5 +33,13 @@ describe("collectPipelinesForProjects", () => {
     expect(result.items).toHaveLength(1);
     expect(result.items[0].projectId).toBe(1);
     expect(result.warnings).toEqual(["Pipeline data unavailable for group/denied (GitLab denied access)"]);
+    expect(result.stats).toMatchObject({
+      totalPipelines: 1,
+      successfulPipelines: 1,
+      failedPipelines: 0,
+      runningPipelines: 0,
+      complete: true,
+      scope: "recent-project-page",
+    });
   });
 });

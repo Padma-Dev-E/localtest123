@@ -31,6 +31,8 @@ GET /api/pipelines/123/456
 
 GitLab's project pipeline history is project-scoped, so an all-project view cannot be fulfilled by one complete-history REST call. GitLab's global `/pipelines` endpoint is limited to pipelines triggered by the authenticated user and is not a replacement for an organization-wide view. If one visible project denies pipeline access, the all-project response keeps the other projects and returns a warning instead of failing the whole request.
 
+Pipeline metrics are separate from the visible table page. A selected project uses GitLab's native pagination totals and status-filter totals, so its count and success rate cover the selected project's full time-window scope. All-project mode reports the aggregate for the current recently-active project page and marks that scope in the response; exact instance-wide analytics require a background collector or GitLab's Premium/Ultimate pipeline analytics.
+
 ## Local setup
 
 1. Copy `.env.example` to `.env`.
