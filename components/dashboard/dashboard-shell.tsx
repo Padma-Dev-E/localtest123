@@ -16,6 +16,7 @@ import { useDashboardData } from "@/hooks/use-dashboard-data";
 import { usePipelineDetail } from "@/hooks/use-pipeline-detail";
 import { Provider } from "react-redux";
 import { store } from "@/store";
+import { timeWindowLabel } from "@/lib/time-window";
 
 export function DashboardShell() {
   return <Provider store={store}><DashboardShellContent /></Provider>;
@@ -25,8 +26,9 @@ function DashboardShellContent() {
   const [view, setView] = useState<View>("overview");
   const [group, setGroup] = useState("all");
   const [project, setProject] = useState("all");
+  const [hours, setHours] = useState(24);
   const [includeSubgroups, setIncludeSubgroups] = useState(true);
-  const filters = useMemo(() => ({ groupId: group === "all" ? null : Number(group), projectId: project === "all" ? null : Number(project), includeSubgroups, hours: 24 }), [group, project, includeSubgroups]);
+  const filters = useMemo(() => ({ groupId: group === "all" ? null : Number(group), projectId: project === "all" ? null : Number(project), includeSubgroups, hours }), [group, project, includeSubgroups, hours]);
   const { data, groups, loading, error, lastRefresh, loadData } = useDashboardData(filters);
   const pipeline = usePipelineDetail();
 
@@ -36,8 +38,8 @@ function DashboardShellContent() {
 
   return <main className="ops-shell">
     <DashboardHeader loading={loading} onRefresh={() => void loadData()} />
-    <DashboardIntro title={title} projectName={selectedProjectName || selectedGroupName || "All visible projects"} lastRefresh={lastRefresh} />
-    <DashboardFilters view={view} group={group} project={project} groups={groups.items} projects={data?.projects || []} includeSubgroups={includeSubgroups} onViewChange={setView} onGroupChange={(value) => { setGroup(value); setProject("all"); }} onProjectChange={setProject} onIncludeSubgroupsChange={setIncludeSubgroups} />
+    <DashboardIntro title={title} projectName={selectedProjectName || selectedGroupName || "All visible projects"} lastRefresh={lastRefresh} windowLabel={timeWindowLabel(hours)} />
+    <DashboardFilters view={view} group={group} project={project} hours={hours} groups={groups.items} projects={data?.projects || []} includeSubgroups={includeSubgroups} onViewChange={setView} onGroupChange={(value) => { setGroup(value); setProject("all"); }} onProjectChange={setProject} onHoursChange={setHours} onIncludeSubgroupsChange={setIncludeSubgroups} />
     <section className="page-width dashboard-content">
       {error ? <Alert tone="danger"><XCircle size={17} /><div><strong>Unable to refresh dashboard</strong><span>{error}</span></div></Alert> : null}
       {data?.warnings.map((warning) => <Alert key={warning} tone={warning.toLowerCase().includes("unavailable") ? "warning" : "info"}><AlertTriangle size={17} /><span>{warning}</span></Alert>)}

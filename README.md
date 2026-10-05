@@ -4,7 +4,7 @@ Read-only GitLab delivery dashboard built with Next.js, ECharts, and GitLab's RE
 
 ## Features
 
-- Last-24-hour project, pipeline, job, and runner overview
+- Configurable project, pipeline, job, and runner overview
 - Pipeline diagnostics with failed stages, failure reasons, retries, artifacts, test summaries, and downstream triggers
 - Runner names, status, version, and total count from the GitLab runner inventory
 - Group hierarchy, group search, subgroup-aware project filtering, and group health summaries
@@ -22,6 +22,7 @@ GET /api/groups?page=1&per_page=100&search=platform
 GET /api/projects?group_id=123&include_subgroups=true&page=1&per_page=20
 GET /api/pipelines?project=all&page=1&per_page=20&hours=24
 GET /api/pipelines?project=all&all=true&page=1&per_page=100&hours=24
+GET /api/pipelines?project=all&all=true&page=1&per_page=100&hours=0
 GET /api/pipelines?project=123&page=1&per_page=20&hours=24&status=failed&ref=main
 GET /api/pipelines?group_id=123&include_subgroups=true&project=all&page=1&per_page=20&hours=24
 GET /api/runners?project=all&page=1&per_page=20
@@ -31,6 +32,8 @@ GET /api/pipelines/123/456
 ```
 
 `all=true` returns the complete accessible project, pipeline, or instance-runner collection in the response while `pagination` still describes the true resource total. For all-project pipelines, `projectPagination` describes the project set scanned; pipeline `pagination.total` is the pipeline total, not the project total. The all-project scan is bounded to the configured time window and uses bounded concurrency. The detail endpoint is for a selected pipeline and loads its complete job and diagnostic data.
+
+The `hours` filter is sent by the frontend. Positive values filter by `updated_after`; `hours=0` omits the time filter and requests all available pipeline history.
 
 GitLab's project pipeline history is project-scoped, so an all-project view cannot be fulfilled by one complete-history REST call. GitLab's global `/pipelines` endpoint is limited to pipelines triggered by the authenticated user and is not a replacement for an organization-wide view. If one visible project denies pipeline access, the all-project response keeps the other projects and returns a warning instead of failing the whole request.
 
@@ -66,7 +69,7 @@ The dashboard does not proxy job traces or pipeline variables because they can c
 - `components/dashboard/pipeline-drawer.tsx`: pipeline diagnostics presentation
 - `components/dashboard/shared.tsx`: shared formatters, badges, metric cards, and empty states
 - `hooks/`: client-side dashboard and pipeline-detail data fetching
-- `lib/dashboard.ts`: concise 24-hour summary API, pagination, counts, and runner inventory
+- `lib/dashboard.ts`: configurable-window summary API, pagination, counts, and runner inventory
 - `lib/pipeline-detail.ts`: optional click-through diagnostics for one pipeline
 - `lib/gitlab-resources.ts`: paginated project, pipeline, and runner resources
 - `lib/api-pagination.ts`: shared pagination parsing and request bounds

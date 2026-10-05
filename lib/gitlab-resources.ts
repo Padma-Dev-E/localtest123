@@ -1,6 +1,7 @@
 import { GitLabApiError, gitlabFetch, gitlabFetchAll, gitlabFetchPage, projectPath } from "./gitlab";
 import { paginationFromHeaders, type ApiPagination } from "./api-pagination";
 import type { GitLabProject, GroupSummary, PipelineAggregateStats, PipelineSummary, RunnerAggregateStats, RunnerSummary } from "./dashboard";
+import { cutoffForHours } from "./time-window";
 
 type GitLabPipeline = {
   id: number;
@@ -119,13 +120,13 @@ export async function listAllProjects(options: { lastActivityAfter?: string; gro
 }
 
 export async function listPipelines(project: GitLabProject, page: number, perPage: number, options: { hours: number; status?: string; ref?: string; scope?: string }): Promise<PageResult<PipelineSummary>> {
-  const after = new Date(Date.now() - options.hours * 60 * 60 * 1000).toISOString();
+  const after = cutoffForHours(options.hours);
   const response = await gitlabFetchPage<GitLabPipeline[]>(`${projectPath(project.id, "/pipelines")}?${query({ updated_after: after, order_by: "updated_at", sort: "desc", status: options.status, scope: options.scope, ref: options.ref, page, per_page: perPage })}`);
   return { items: response.data.map((pipeline) => formatPipeline(project, pipeline)), pagination: paginationFromHeaders(response.headers, page, perPage, response.data.length) };
 }
 
 export async function listAllPipelines(project: GitLabProject, options: { hours: number; status?: string; ref?: string; scope?: string }): Promise<PipelineSummary[]> {
-  const after = new Date(Date.now() - options.hours * 60 * 60 * 1000).toISOString();
+  const after = cutoffForHours(options.hours);
   const pipelines = await gitlabFetchAll<GitLabPipeline>(`${projectPath(project.id, "/pipelines")}?${query({ updated_after: after, order_by: "updated_at", sort: "desc", status: options.status, scope: options.scope, ref: options.ref })}`);
   return pipelines.map((pipeline) => formatPipeline(project, pipeline));
 }

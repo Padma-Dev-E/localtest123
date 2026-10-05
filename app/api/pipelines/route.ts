@@ -4,6 +4,7 @@ import { pageNumber, paginateItems, perPageNumber } from "@/lib/api-pagination";
 import { collectAllPipelinesForProjects, getProject, listAllPipelines, listAllProjects, listPipelines, pipelineStatsForPage, pipelineStatsForProject } from "@/lib/gitlab-resources";
 import { GitLabApiError } from "@/lib/gitlab";
 import { cached } from "@/lib/ttl-cache";
+import { parseHours } from "@/lib/time-window";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,7 @@ export async function GET(request: NextRequest) {
   const project = params.get("project") || "all";
   const page = pageNumber(params.get("page"));
   const perPage = perPageNumber(params.get("per_page"));
-  const hours = Math.min(Math.max(Number(params.get("hours") || 24), 1), 168);
+  const hours = parseHours(params.get("hours"));
   const status = params.get("status") || undefined;
   const ref = params.get("ref") || undefined;
   const allRecords = params.get("all") === "true";

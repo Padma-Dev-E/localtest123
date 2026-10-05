@@ -1,4 +1,5 @@
 import { GitLabApiError, gitlabFetchAll, gitlabFetchPage, projectPath } from "./gitlab";
+import { cutoffForHours } from "./time-window";
 
 export type GitLabProject = {
   id: number;
@@ -225,16 +226,19 @@ function formatPipeline(project: GitLabProject, pipeline: GitLabPipeline): Pipel
   };
 }
 
-async function collectProject(project: GitLabProject, cutoff: string) {
+async function collectProject(project: GitLabProject, cutoff: string | undefined) {
   const warnings: string[] = [];
   let rawPipelines: GitLabPipeline[] = [];
   try {
-    rawPipelines = await gitlabFetchAll<GitLabPipeline>(`${projectPath(project.id, "/pipelines")}?updated_after=${encodeURIComponent(cutoff)}&order_by=updated_at&sort=desc`);
+    const query = new URLSearchParams({ order_by: "updated_at", sort: "desc" });
+    if (cutoff) query.set("updated_after", cutoff);
+    rawPipelines = await gitlabFetchAll<GitLabPipeline>(`${projectPath(project.id, "/pipelines")}?${query}`);
   } catch {
     warnings.push(`Pipeline data unavailable for ${project.path_with_namespace}`);
   }
-  const cutoffTime = Date.parse(cutoff);
+  const cutoffTime = cutoff ? Date.parse(cutoff) : null;
   const isRecent = (value: string | undefined) => {
+    if (cutoffTime === null) return true;
     const timestamp = Date.parse(value || "");
     return !Number.isFinite(timestamp) || timestamp >= cutoffTime;
   };
@@ -255,9 +259,9 @@ async function mapConcurrent<T, R>(items: T[], worker: (item: T) => Promise<R>, 
   return results;
 }
 
-export async function getDashboardData(options: { projectId?: number }): Promise<DashboardData> {
-  const windowHours = 24;
-  const cutoff = new Date(Date.now() - windowHours * 60 * 60 * 1000).toISOString();
+export async function getDashboardData(options: { projectId?: number; hours?: number }): Promise<DashboardData> {
+  const windowHours = options.hours ?? 24;
+  const cutoff = cutoffForHours(windowHours);
   const warnings: string[] = [];
   let projects: GitLabProject[];
   let projectCount = 0;
@@ -274,7 +278,9 @@ export async function getDashboardData(options: { projectId?: number }): Promise
   let pipelineProjects = projects;
   if (!options.projectId) {
     try {
-      const recentPage = await gitlabFetchPage<GitLabProject[]>(`/projects?simple=true&last_activity_after=${encodeURIComponent(cutoff)}&order_by=last_activity_at&sort=desc&per_page=100&page=1`);
+      const recentQuery = new URLSearchParams({ simple: "true", order_by: "last_activity_at", sort: "desc", per_page: "100", page: "1" });
+      if (cutoff) recentQuery.set("last_activity_after", cutoff);
+      const recentPage = await gitlabFetchPage<GitLabProject[]>(`/projects?${recentQuery}`);
       pipelineProjects = recentPage.data;
     } catch {
       warnings.push("Recently active projects could not be identified; pipeline counts may be incomplete");
