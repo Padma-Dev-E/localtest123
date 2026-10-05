@@ -119,6 +119,10 @@ export async function getProject(projectId: number): Promise<GitLabProject> {
   return gitlabFetch<GitLabProject>(`/projects/${projectId}?simple=true`);
 }
 
+export async function getGroup(groupId: number): Promise<GroupSummary> {
+  return gitlabFetch<GroupSummary>(`/groups/${groupId}`);
+}
+
 export async function listGroups(page: number, perPage: number, options: { search?: string; topLevelOnly?: boolean; allAvailable?: boolean; visibility?: string; active?: boolean; archived?: boolean; orderBy?: string; sort?: string }): Promise<PageResult<GroupSummary>> {
   const response = await gitlabFetchPage<GroupSummary[]>(`/groups?${query({
     search: options.search,
@@ -329,10 +333,10 @@ export async function listAllRunnersForProject(projectId: number): Promise<Runne
   return gitlabFetchAll<RunnerSummary>(projectPath(projectId, "/runners"));
 }
 
-export function runnerStats(items: RunnerSummary[], scope: RunnerAggregateStats["scope"] = "instance", complete = true): RunnerAggregateStats {
+export function runnerStats(items: RunnerSummary[], scope: RunnerAggregateStats["scope"] = "instance", complete = true, total = items.length): RunnerAggregateStats {
   const onlineRunners = items.filter((runner) => !runner.paused && (runner.online || runner.status === "online")).length;
   const pausedRunners = items.filter((runner) => runner.paused).length;
-  return { totalRunners: items.length, onlineRunners, offlineRunners: Math.max(items.length - onlineRunners, 0), pausedRunners, complete, scope };
+  return { totalRunners: total, onlineRunners, offlineRunners: Math.max(total - onlineRunners, 0), pausedRunners, complete, scope };
 }
 
 async function mapConcurrent<T, R>(items: T[], concurrency: number, mapper: (item: T) => Promise<R>): Promise<R[]> {

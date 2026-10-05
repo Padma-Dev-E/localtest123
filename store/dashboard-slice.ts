@@ -3,6 +3,7 @@ import { createAsyncThunk, createSelector, createSlice, type PayloadAction } fro
 import {
   buildPipelineMetrics,
   mergeWarnings,
+  type DashboardSnapshot,
   type DashboardData,
   type GitLabProject,
   type GroupSummary,
@@ -26,15 +27,6 @@ export type ResourcePage<T> = {
   loading: boolean;
   loaded: boolean;
   error: string | null;
-};
-
-type ApiPage<T> = {
-  items: T[];
-  pagination: ApiPagination;
-  stats?: PipelineAggregateStats;
-  runnerStats?: RunnerAggregateStats;
-  warnings?: string[];
-  error?: string;
 };
 
 export type DashboardState = {
@@ -69,42 +61,31 @@ const initialState: DashboardState = {
   lastRefresh: null,
 };
 
-async function fetchPage<T>(url: string): Promise<ApiPage<T>> {
+async function fetchDashboard(url: string): Promise<DashboardSnapshot> {
   const response = await fetch(url, { cache: "no-store" });
-  const payload = await response.json() as ApiPage<T>;
+  const payload = await response.json() as DashboardSnapshot & { error?: string };
   if (!response.ok) throw new Error(payload.error || "GitLab resource request failed");
   return payload;
 }
 
-async function loadResource<T>(url: string, label: string) {
+async function loadDashboard(url: string) {
   try {
-    const page = await fetchPage<T>(url);
-    return { page, warnings: page.warnings || [] };
+    const dashboard = await fetchDashboard(url);
+    return { dashboard, warnings: dashboard.warnings || [] };
   } catch (error) {
-    return { page: null, warnings: [error instanceof Error ? `${label}: ${error.message}` : `${label}: request failed`] };
+    return { dashboard: null, warnings: [error instanceof Error ? `Dashboard: ${error.message}` : "Dashboard: request failed"] };
   }
 }
 
-export const loadGroups = createAsyncThunk("dashboard/loadGroups", async () => loadResource<GroupSummary>("/api/groups?page=1&per_page=100", "Groups"));
-
 export const loadResources = createAsyncThunk("dashboard/loadResources", async (filters: DashboardFilters) => {
-  const projectParams = new URLSearchParams({ page: "1", per_page: "100" });
+  const params = new URLSearchParams({ hours: String(filters.hours) });
+  if (filters.projectId) params.set("project", String(filters.projectId));
   if (filters.groupId) {
-    projectParams.set("group_id", String(filters.groupId));
-    projectParams.set("include_subgroups", String(filters.includeSubgroups));
+    params.set("group_id", String(filters.groupId));
+    params.set("include_subgroups", String(filters.includeSubgroups));
   }
-  const pipelineParams = new URLSearchParams({ project: filters.projectId ? String(filters.projectId) : "all", page: "1", per_page: "100", summary: "true", hours: String(filters.hours) });
-  if (filters.groupId) {
-    pipelineParams.set("group_id", String(filters.groupId));
-    pipelineParams.set("include_subgroups", String(filters.includeSubgroups));
-  }
-  const runnerParams = new URLSearchParams({ project: filters.projectId ? String(filters.projectId) : "all", page: "1", per_page: "100", all: "true" });
-  const [projects, pipelines, runners] = await Promise.all([
-    loadResource<GitLabProject>(`/api/projects?${projectParams}`, "Projects"),
-    loadResource<PipelineSummary>(`/api/pipelines?${pipelineParams}`, "Pipelines"),
-    loadResource<RunnerSummary>(`/api/runners?${runnerParams}`, "Runners"),
-  ]);
-  return { filters, projects, pipelines, runners, warnings: [...projects.warnings, ...pipelines.warnings, ...runners.warnings] };
+  const result = await loadDashboard(`/api/dashboard?${params}`);
+  return { filters, dashboard: result.dashboard, warnings: result.warnings };
 });
 
 const dashboardSlice = createSlice({
@@ -120,19 +101,6 @@ const dashboardSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
-      .addCase(loadGroups.pending, (state) => {
-        state.groups.loading = true;
-        state.groups.error = null;
-      })
-      .addCase(loadGroups.fulfilled, (state, action) => {
-        state.groups = { items: action.payload.page?.items || [], pagination: action.payload.page?.pagination || null, loading: false, loaded: true, error: null };
-        state.warnings = mergeWarnings([...state.warnings, ...action.payload.warnings]);
-      })
-      .addCase(loadGroups.rejected, (state, action) => {
-        state.groups.loading = false;
-        state.groups.loaded = true;
-        state.groups.error = action.error.message || "Groups could not be loaded";
-      })
       .addCase(loadResources.pending, (state, action) => {
         state.status = "loading";
         state.filters = action.meta.arg;
@@ -140,18 +108,20 @@ const dashboardSlice = createSlice({
         state.projects.loading = true;
         state.pipelines.loading = true;
         state.runners.loading = true;
+        state.groups.loading = true;
       })
       .addCase(loadResources.fulfilled, (state, action) => {
-        const { projects, pipelines, runners } = action.payload;
+        const dashboard = action.payload.dashboard;
         state.status = "succeeded";
         state.lastRefresh = new Date().toISOString();
         state.warnings = mergeWarnings(action.payload.warnings);
-        state.projects = { items: projects.page?.items || [], pagination: projects.page?.pagination || null, loading: false, loaded: true, error: projects.page ? null : projects.warnings[0] || null };
-        state.pipelines = { items: pipelines.page?.items || [], pagination: pipelines.page?.pagination || null, loading: false, loaded: true, error: pipelines.page ? null : pipelines.warnings[0] || null };
-        state.pipelineStats = pipelines.page?.stats || null;
-        state.runnerStats = runners.page?.runnerStats || null;
-        state.runners = { items: runners.page?.items || [], pagination: runners.page?.pagination || null, loading: false, loaded: true, error: runners.page ? null : runners.warnings[0] || null };
-        state.runnerSource = runners.page ? "inventory" : "unavailable";
+        state.groups = { items: dashboard?.groups || [], pagination: dashboard?.pagination.groups || null, loading: false, loaded: true, error: null };
+        state.projects = { items: dashboard?.projects || [], pagination: dashboard?.pagination.projects || null, loading: false, loaded: true, error: null };
+        state.pipelines = { items: dashboard?.pipelines || [], pagination: dashboard?.pagination.pipelines || null, loading: false, loaded: true, error: null };
+        state.pipelineStats = dashboard?.pipelineStats || null;
+        state.runnerStats = dashboard?.runnerStats || null;
+        state.runners = { items: dashboard?.runners || [], pagination: dashboard?.pagination.runners || null, loading: false, loaded: true, error: null };
+        state.runnerSource = dashboard?.runnerSource || "unavailable";
       })
       .addCase(loadResources.rejected, (state, action) => {
         state.status = "failed";
@@ -159,6 +129,7 @@ const dashboardSlice = createSlice({
         state.projects.loading = false;
         state.pipelines.loading = false;
         state.runners.loading = false;
+        state.groups.loading = false;
       });
   },
 });

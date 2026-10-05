@@ -4,7 +4,6 @@ import { useCallback, useEffect } from "react";
 
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
-  loadGroups,
   loadResources,
   selectDashboardData,
   selectDashboardError,
@@ -25,13 +24,8 @@ export function useDashboardData(filters: DashboardFilters) {
   const lastRefresh = useAppSelector(selectLastRefresh);
 
   const loadData = useCallback(() => {
-    void dispatch(loadGroups());
     void dispatch(loadResources(filters));
   }, [dispatch, filters]);
-
-  useEffect(() => {
-    if (!groups.loaded) void dispatch(loadGroups());
-  }, [dispatch, groups.loaded]);
 
   useEffect(() => {
     void dispatch(loadResources(filters));

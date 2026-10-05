@@ -17,9 +17,13 @@ export async function GET(request: NextRequest) {
   if (projectId !== null && (!Number.isSafeInteger(projectId) || projectId < 1)) return NextResponse.json({ error: "project must be all or a numeric project id" }, { status: 400 });
   try {
     if (projectId === null) {
-      const items = await cached("runners:instance", listAllRunners);
-      const result = paginateItems(items, page, perPage);
-      return NextResponse.json({ ...result, items: allRecords ? items : result.items, stats: runnerStats(items), filters: { project: "all", all: allRecords } }, { headers: { "Cache-Control": "private, max-age=15, stale-while-revalidate=30" } });
+      if (allRecords) {
+        const items = await cached("runners:instance", listAllRunners);
+        const result = paginateItems(items, page, perPage);
+        return NextResponse.json({ ...result, items, stats: runnerStats(items), filters: { project: "all", all: true } }, { headers: { "Cache-Control": "private, max-age=15, stale-while-revalidate=30" } });
+      }
+      const result = await listRunners(null, page, perPage);
+      return NextResponse.json({ ...result, stats: runnerStats(result.items, "instance", false, result.pagination.total ?? result.items.length), filters: { project: "all" } }, { headers: { "Cache-Control": "private, max-age=15, stale-while-revalidate=30" } });
     }
     if (allRecords) {
       const items = await cached(`runners:project:${projectId}`, () => listAllRunnersForProject(projectId));

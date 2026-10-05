@@ -1,5 +1,4 @@
-import { GitLabApiError, gitlabFetchAll, gitlabFetchPage, projectPath } from "./gitlab";
-import { cutoffForHours } from "./time-window";
+import type { ApiPagination } from "./api-pagination";
 
 export type GitLabProject = {
   id: number;
@@ -34,31 +33,6 @@ export type GroupSummary = {
   visibility?: string;
   web_url?: string | null;
   avatar_url?: string | null;
-};
-
-type GitLabPipeline = {
-  id: number;
-  project_id: number;
-  iid?: number;
-  status: string;
-  ref: string;
-  sha?: string;
-  before_sha?: string;
-  tag?: boolean;
-  source?: string;
-  created_at: string;
-  updated_at: string;
-  committed_at?: string | null;
-  started_at?: string | null;
-  finished_at?: string | null;
-  duration?: number | null;
-  queued_duration?: number | null;
-  yaml_errors?: string | null;
-  coverage?: number | null;
-  archived?: boolean;
-  name?: string | null;
-  user?: { id?: number; username?: string; name?: string; web_url?: string } | null;
-  web_url?: string;
 };
 
 export type GitLabJob = {
@@ -183,6 +157,16 @@ export type DashboardData = {
   warnings: string[];
 };
 
+export type DashboardSnapshot = DashboardData & {
+  groups: GroupSummary[];
+  pagination: {
+    groups: ApiPagination;
+    projects: ApiPagination;
+    pipelines: ApiPagination;
+    runners: ApiPagination;
+  };
+};
+
 export function safeStatus(status: string | undefined): string {
   return status?.trim().toLowerCase() || "unknown";
 }
@@ -222,104 +206,4 @@ export function buildPipelineMetrics(pipelines: PipelineSummary[], jobs: JobSumm
 
 export function mergeWarnings(warnings: string[]): string[] {
   return [...new Set(warnings.map((warning) => warning.trim()).filter(Boolean))];
-}
-
-function formatPipeline(project: GitLabProject, pipeline: GitLabPipeline): PipelineSummary {
-  return {
-    id: pipeline.id, projectId: project.id, projectName: project.path_with_namespace, status: safeStatus(pipeline.status), ref: pipeline.ref,
-    iid: pipeline.iid, sha: pipeline.sha, beforeSha: pipeline.before_sha, tag: pipeline.tag, source: pipeline.source,
-    yamlErrors: pipeline.yaml_errors ?? null, coverage: pipeline.coverage ?? null, committedAt: pipeline.committed_at ?? null,
-    archived: pipeline.archived, name: pipeline.name ?? null, user: pipeline.user ? { ...pipeline.user, webUrl: pipeline.user.web_url } : null,
-    createdAt: pipeline.created_at, updatedAt: pipeline.updated_at, startedAt: pipeline.started_at ?? null, finishedAt: pipeline.finished_at ?? null,
-    duration: pipeline.duration ?? null, queuedDuration: pipeline.queued_duration ?? null, webUrl: pipeline.web_url || `${project.web_url}/-/pipelines/${pipeline.id}`,
-  };
-}
-
-async function collectProject(project: GitLabProject, cutoff: string | undefined) {
-  const warnings: string[] = [];
-  let rawPipelines: GitLabPipeline[] = [];
-  try {
-    const query = new URLSearchParams({ order_by: "updated_at", sort: "desc" });
-    if (cutoff) query.set("updated_after", cutoff);
-    rawPipelines = await gitlabFetchAll<GitLabPipeline>(`${projectPath(project.id, "/pipelines")}?${query}`);
-  } catch {
-    warnings.push(`Pipeline data unavailable for ${project.path_with_namespace}`);
-  }
-  const cutoffTime = cutoff ? Date.parse(cutoff) : null;
-  const isRecent = (value: string | undefined) => {
-    if (cutoffTime === null) return true;
-    const timestamp = Date.parse(value || "");
-    return !Number.isFinite(timestamp) || timestamp >= cutoffTime;
-  };
-  const pipelines = rawPipelines.map((pipeline) => formatPipeline(project, pipeline)).filter((pipeline) => isRecent(pipeline.updatedAt));
-  return { pipelines, warnings };
-}
-
-async function mapConcurrent<T, R>(items: T[], worker: (item: T) => Promise<R>, concurrency = 6): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let nextIndex = 0;
-  const run = async () => {
-    while (nextIndex < items.length) {
-      const index = nextIndex++;
-      results[index] = await worker(items[index]);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, run));
-  return results;
-}
-
-export async function getDashboardData(options: { projectId?: number; hours?: number }): Promise<DashboardData> {
-  const windowHours = options.hours ?? 24;
-  const cutoff = cutoffForHours(windowHours);
-  const warnings: string[] = [];
-  let projects: GitLabProject[];
-  let projectCount = 0;
-
-  try {
-    const projectPage = await gitlabFetchPage<GitLabProject[]>("/projects?simple=true&order_by=last_activity_at&sort=desc&per_page=100&page=1");
-    projects = projectPage.data;
-    projectCount = Number(projectPage.headers.get("x-total")) || projects.length;
-  } catch (error) {
-    const message = error instanceof GitLabApiError && error.status === 503 ? "Dashboard is not configured with a GitLab read-only token" : "GitLab projects could not be loaded";
-    return { generatedAt: new Date().toISOString(), windowHours, projectCount: 0, runnerCount: 0, projects: [], pipelines: [], jobs: [], runners: [], runnerSource: "unavailable", metrics: buildPipelineMetrics([]), warnings: [message] };
-  }
-
-  let pipelineProjects = projects;
-  if (!options.projectId) {
-    try {
-      const recentQuery = new URLSearchParams({ simple: "true", order_by: "last_activity_at", sort: "desc", per_page: "100", page: "1" });
-      if (cutoff) recentQuery.set("last_activity_after", cutoff);
-      const recentPage = await gitlabFetchPage<GitLabProject[]>(`/projects?${recentQuery}`);
-      pipelineProjects = recentPage.data;
-    } catch {
-      warnings.push("Recently active projects could not be identified; pipeline counts may be incomplete");
-      pipelineProjects = [];
-    }
-  } else {
-    pipelineProjects = projects.filter((project) => project.id === options.projectId);
-  }
-
-  const projectResults = await mapConcurrent(pipelineProjects, (project) => collectProject(project, cutoff));
-  const pipelines = projectResults.flatMap((result) => result.pipelines).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
-  warnings.push(...projectResults.flatMap((result) => result.warnings));
-
-  const latestByProject = new Map<number, PipelineSummary>();
-  for (const pipeline of pipelines) if (!latestByProject.has(pipeline.projectId)) latestByProject.set(pipeline.projectId, pipeline);
-  const projectSummaries = projects.map((project) => ({ ...project, latestPipeline: latestByProject.get(project.id) }));
-
-  let runners: RunnerSummary[] = [];
-  let runnerSource: DashboardData["runnerSource"] = "unavailable";
-  let runnerCount = 0;
-  try {
-    const runnerPage = await gitlabFetchPage<GitLabRunner[]>("/runners/all?per_page=100&page=1");
-    runners = runnerPage.data;
-    runnerCount = Number(runnerPage.headers.get("x-total")) || runners.length;
-    runnerSource = "inventory";
-  } catch (error) {
-    warnings.push(error instanceof GitLabApiError && error.status === 403 ? "Full runner inventory is unavailable to this GitLab token" : "Runner inventory could not be loaded");
-  }
-
-  const metrics = buildPipelineMetrics(pipelines);
-  metrics.visibleRunners = runners.filter((runner) => runner.online && !runner.paused).length;
-  return { generatedAt: new Date().toISOString(), windowHours, projectCount, runnerCount, projects: projectSummaries, pipelines, jobs: [], runners, runnerSource, metrics, warnings: mergeWarnings(warnings) };
 }
