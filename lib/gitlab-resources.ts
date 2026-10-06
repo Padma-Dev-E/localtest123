@@ -415,14 +415,4 @@ export async function collectAllPipelinesForProjects(
   };
 }
 
-export async function listLatestAccessiblePipelines(options: { hours: number; status?: string; ref?: string }): Promise<{ items: PipelineSummary[]; warnings: string[]; projectPagination: ApiPagination }> {
-  const projects = await listProjects(1, 100);
-  const collected = await collectPipelinesForProjects(projects.items, (project) => listPipelines(project, 1, 1, options));
-  return {
-    items: collected.items.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)),
-    warnings: collected.warnings,
-    projectPagination: projects.pagination,
-  };
-}
-
 export { mapConcurrent };
