@@ -2,8 +2,11 @@ import type { NextApiRequest, NextApiResponse } from "next";
 
 import { methodNotAllowed, queryValue, setCacheControl } from "@/lib/api-handler";
 import { pageNumber, perPageNumber } from "@/lib/api-pagination";
+import { generateAPIResponse } from "@/lib/api-response";
 import { GitLabApiError } from "@/lib/gitlab";
 import { listGroups } from "@/lib/gitlab-resources";
+
+const API_ID = "gitlab_groups";
 
 function booleanParam(value: string | null, fallback?: boolean) {
   if (value === null) return fallback;
@@ -13,7 +16,7 @@ function booleanParam(value: string | null, fallback?: boolean) {
 }
 
 export default async function handler(request: NextApiRequest, response: NextApiResponse) {
-  if (request.method !== "GET") return methodNotAllowed(response);
+  if (request.method !== "GET") return methodNotAllowed(response, API_ID);
 
   const page = pageNumber(queryValue(request, "page"));
   const perPage = perPageNumber(queryValue(request, "per_page"));
@@ -29,12 +32,12 @@ export default async function handler(request: NextApiRequest, response: NextApi
   try {
     const result = await listGroups(page, perPage, { search, topLevelOnly, allAvailable, visibility, active, archived, orderBy, sort });
     setCacheControl(response, "private, max-age=60, stale-while-revalidate=120");
-    return response.status(200).json({
+    return response.status(200).json(generateAPIResponse(200, API_ID, {
       ...result,
       filters: { search: search || null, topLevelOnly: topLevelOnly ?? null, allAvailable, visibility: visibility || null, active: active ?? null, archived: archived ?? null, orderBy, sort },
-    });
+    }));
   } catch (error) {
     const status = error instanceof GitLabApiError && error.status === 403 ? 403 : 502;
-    return response.status(status).json({ error: status === 403 ? "Groups are not available to this GitLab token" : "Groups could not be loaded" });
+    return response.status(status).json(generateAPIResponse(status, API_ID, { error: status === 403 ? "Groups are not available to this GitLab token" : "Groups could not be loaded" }));
   }
 }

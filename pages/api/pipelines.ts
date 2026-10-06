@@ -2,17 +2,20 @@ import type { NextApiRequest, NextApiResponse } from "next";
 
 import { methodNotAllowed, queryValue } from "@/lib/api-handler";
 import { pageNumber, paginateItems, perPageNumber } from "@/lib/api-pagination";
+import { generateAPIResponse } from "@/lib/api-response";
 import { GitLabApiError } from "@/lib/gitlab";
 import { collectPipelinesForProjects, getGroup, getProject, instancePipelineAnalytics, listAllPipelines, listGroupProjects, listGlobalPipelinesPage, listPipelines, pipelineAnalytics, pipelineStatsForItems, pipelineStatsForPage, pipelineStatsForProject } from "@/lib/gitlab-resources";
 import { cached } from "@/lib/ttl-cache";
 import { parseHours } from "@/lib/time-window";
+
+const API_ID = "gitlab_pipelines";
 
 function validId(value: number): boolean {
   return Number.isSafeInteger(value) && value > 0;
 }
 
 export default async function handler(request: NextApiRequest, response: NextApiResponse) {
-  if (request.method !== "GET") return methodNotAllowed(response);
+  if (request.method !== "GET") return methodNotAllowed(response, API_ID);
 
   const project = queryValue(request, "project") || "all";
   const page = pageNumber(queryValue(request, "page"));
@@ -26,12 +29,12 @@ export default async function handler(request: NextApiRequest, response: NextApi
   const groupId = groupValue === null ? null : Number(groupValue);
   const includeSubgroups = queryValue(request, "include_subgroups") === "true";
 
-  if (groupId !== null && !validId(groupId)) return response.status(400).json({ error: "group_id must be a positive numeric group id" });
+  if (groupId !== null && !validId(groupId)) return response.status(400).json(generateAPIResponse(400, API_ID, { error: "group_id must be a positive numeric group id" }));
 
   try {
     if (groupId === null && (project === "all" || summary)) {
       const projectId = project === "all" ? undefined : Number(project);
-      if (projectId !== undefined && !validId(projectId)) return response.status(400).json({ error: "project must be all or a numeric project id" });
+      if (projectId !== undefined && !validId(projectId)) return response.status(400).json(generateAPIResponse(400, API_ID, { error: "project must be all or a numeric project id" }));
 
       const directCacheKey = `global-pipeline-page:${projectId ?? "instance"}:${page}:${perPage}:${hours}`;
       const warnings: string[] = [];
@@ -62,25 +65,25 @@ export default async function handler(request: NextApiRequest, response: NextApi
       const pagination = analyticsAvailable
         ? { ...result.pagination, total: stats.totalPipelines, totalPages: Math.ceil(stats.totalPipelines / perPage), hasNext: page < Math.ceil(stats.totalPipelines / perPage), nextPage: page < Math.ceil(stats.totalPipelines / perPage) ? page + 1 : null }
         : result.pagination;
-      return response.status(200).json({
+      return response.status(200).json(generateAPIResponse(200, API_ID, {
         ...result,
         pagination,
         stats,
         filters: { project: project === "all" ? "all" : projectId, groupId: null, includeSubgroups, hours, status: status || null, ref: ref || null, all: false, summary },
         warnings: [...new Set(warnings)],
         paginationNote: analyticsAvailable ? "Rows use GitLab's direct /pipelines endpoint; aggregate counts and trends use Enterprise pipeline analytics." : "Rows use GitLab's direct /pipelines endpoint. Its documented scope is pipelines triggered by the authenticated user.",
-      });
+      }));
     }
 
     if (project !== "all") {
       const projectId = Number(project);
-      if (!validId(projectId)) return response.status(400).json({ error: "project must be all or a numeric project id" });
+      if (!validId(projectId)) return response.status(400).json(generateAPIResponse(400, API_ID, { error: "project must be all or a numeric project id" }));
       const selected = await getProject(projectId);
       if (allRecords) {
         const items = await listAllPipelines(selected, { hours, status, ref });
         const resolved = paginateItems(items, page, perPage);
         const stats = pipelineStatsForPage({ items, pagination: resolved.pagination }, "project");
-        return response.status(200).json({ ...resolved, items, stats, filters: { project: projectId, groupId, includeSubgroups, hours, status: status || null, ref: ref || null, all: true } });
+        return response.status(200).json(generateAPIResponse(200, API_ID, { ...resolved, items, stats, filters: { project: projectId, groupId, includeSubgroups, hours, status: status || null, ref: ref || null, all: true } }));
       }
 
       const resolved = await listPipelines(selected, page, perPage, { hours, status, ref });
@@ -92,7 +95,7 @@ export default async function handler(request: NextApiRequest, response: NextApi
           // Keep the project page usable when status-specific permissions differ.
         }
       }
-      return response.status(200).json({ ...resolved, stats, filters: { project: projectId, groupId, includeSubgroups, hours, status: status || null, ref: ref || null } });
+      return response.status(200).json(generateAPIResponse(200, API_ID, { ...resolved, stats, filters: { project: projectId, groupId, includeSubgroups, hours, status: status || null, ref: ref || null } }));
     }
 
     const projects = await listGroupProjects(groupId as number, 1, 100, { includeSubgroups });
@@ -107,7 +110,7 @@ export default async function handler(request: NextApiRequest, response: NextApi
     } catch {
       warnings.push("Enterprise group pipeline analytics is unavailable; group cards use the visible latest rows.");
     }
-    return response.status(200).json({
+    return response.status(200).json(generateAPIResponse(200, API_ID, {
       ...result,
       items: allRecords ? sorted : result.items,
       projectPagination: projects.pagination,
@@ -115,9 +118,9 @@ export default async function handler(request: NextApiRequest, response: NextApi
       filters: { project: "all", groupId, includeSubgroups, hours, status: status || null, ref: ref || null, all: false },
       warnings: [...new Set(warnings)],
       paginationNote: "Group pipeline rows show the latest accessible pipeline per project. Use a project pipeline endpoint for complete project history; aggregate group totals come from Enterprise pipeline analytics.",
-    });
+    }));
   } catch (error) {
     const status = error instanceof GitLabApiError ? (error.status === 403 ? 403 : error.status === 404 ? 404 : 502) : 502;
-    return response.status(status).json({ error: "Pipelines could not be loaded" });
+    return response.status(status).json(generateAPIResponse(status, API_ID, { error: "Pipelines could not be loaded" }));
   }
 }

@@ -13,6 +13,7 @@ import {
   type RunnerSummary,
 } from "@/lib/dashboard";
 import type { ApiPagination } from "@/lib/api-pagination";
+import { apiResponseError, type APIResponse } from "@/lib/api-response";
 
 export type DashboardFilters = {
   groupId: number | null;
@@ -63,9 +64,9 @@ const initialState: DashboardState = {
 
 async function fetchDashboard(url: string): Promise<DashboardSnapshot> {
   const response = await fetch(url, { cache: "no-store" });
-  const payload = await response.json() as DashboardSnapshot & { error?: string };
-  if (!response.ok) throw new Error(payload.error || "GitLab resource request failed");
-  return payload;
+  const payload = await response.json() as APIResponse<DashboardSnapshot>;
+  if (!response.ok || !payload.data || payload.status?.code >= 400) throw new Error(apiResponseError(payload) || "GitLab resource request failed");
+  return payload.data;
 }
 
 async function loadDashboard(url: string) {
@@ -81,14 +82,13 @@ type PipelinePageResponse = {
   items: PipelineSummary[];
   pagination: ApiPagination;
   warnings?: string[];
-  error?: string;
 };
 
 async function fetchPipelinePage(url: string): Promise<PipelinePageResponse> {
   const response = await fetch(url, { cache: "no-store" });
-  const payload = await response.json() as PipelinePageResponse;
-  if (!response.ok) throw new Error(payload.error || "Pipeline list could not be loaded");
-  return payload;
+  const payload = await response.json() as APIResponse<PipelinePageResponse>;
+  if (!response.ok || !payload.data || payload.status?.code >= 400) throw new Error(apiResponseError(payload) || "Pipeline list could not be loaded");
+  return payload.data;
 }
 
 export const loadResources = createAsyncThunk("dashboard/loadResources", async (filters: DashboardFilters) => {

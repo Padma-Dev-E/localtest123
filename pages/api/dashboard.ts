@@ -2,14 +2,17 @@ import type { NextApiRequest, NextApiResponse } from "next";
 
 import { getDashboardSnapshot } from "@/lib/dashboard-service";
 import { methodNotAllowed, queryValue, setCacheControl } from "@/lib/api-handler";
+import { generateAPIResponse } from "@/lib/api-response";
 import { parseHours } from "@/lib/time-window";
+
+const API_ID = "gitlab_dashboard";
 
 function validId(value: number | undefined): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
 export default async function handler(request: NextApiRequest, response: NextApiResponse) {
-  if (request.method !== "GET") return methodNotAllowed(response);
+  if (request.method !== "GET") return methodNotAllowed(response, API_ID);
 
   const projectValue = queryValue(request, "project");
   const projectId = projectValue && projectValue !== "all" ? Number(projectValue) : undefined;
@@ -24,8 +27,8 @@ export default async function handler(request: NextApiRequest, response: NextApi
       hours: parseHours(queryValue(request, "hours")),
     });
     setCacheControl(response, "private, max-age=20, stale-while-revalidate=60");
-    return response.status(200).json(data);
+    return response.status(200).json(generateAPIResponse(200, API_ID, data));
   } catch {
-    return response.status(502).json({ error: "Dashboard data could not be loaded" });
+    return response.status(502).json(generateAPIResponse(502, API_ID, { error: "Dashboard data could not be loaded" }));
   }
 }
